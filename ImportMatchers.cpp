@@ -5,66 +5,46 @@
 
 using namespace clang;
 using namespace clang::ast_matchers;
+using namespace import_tidy;
 
-namespace {
-  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
-  static const StringRef nodeKey = "key";
+namespace import_tidy {
+static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
+static const StringRef nodeKey = "key";
 
-  class MessageExprCallback : public MatchFinder::MatchCallback {
-  public:
-    void run(const MatchFinder::MatchResult &Result) override {
-      if (const ObjCMessageExpr *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
-        const ObjCInterfaceDecl *ID = E->getReceiverInterface();
-        std::string Name = ID->getNameAsString();
-        if (class_names.count(Name) == 0) {
-          class_names.insert(Name);
-          imports.insert(ID->getLocation().printToString(*Result.SourceManager));
-        }
-      }
+void MessageExprCallback::run(const MatchFinder::MatchResult &Result) {
+  if (const ObjCMessageExpr *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
+    const ObjCInterfaceDecl *ID = E->getReceiverInterface();
+    std::string Name = ID->getNameAsString();
+    if (class_names.count(Name) == 0) {
+      class_names.insert(Name);
+      imports.insert(ID->getLocation().printToString(*Result.SourceManager));
     }
-
-    std::unordered_set<std::string> &getImports() { return imports; }
-  private:
-    std::unordered_set<std::string> imports, class_names;
-  };
-
-  class CallExprCallback : public MatchFinder::MatchCallback {
-  public:
-    void run(const MatchFinder::MatchResult &Result) override {
-      if (const CallExpr *E = Result.Nodes.getNodeAs<CallExpr>(nodeKey)) {
-        const FunctionDecl *FD = E->getDirectCallee();
-        std::string Name = FD->getNameAsString();
-        if (function_names.count(Name) == 0) {
-          function_names.insert(Name);
-          imports.insert(FD->getLocation().printToString(*Result.SourceManager));
-        }
-      }
-    }
-
-    std::unordered_set<std::string> &getImports() { return imports; }
-  private:
-    std::unordered_set<std::string> imports, function_names;
-  };
-  
-  MessageExprCallback MsgCallback;
-  CallExprCallback CallCallback;
+  }
 }
 
-void registerMatchers(clang::ast_matchers::MatchFinder &Finder) {
+void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
+  if (const CallExpr *E = Result.Nodes.getNodeAs<CallExpr>(nodeKey)) {
+    const FunctionDecl *FD = E->getDirectCallee();
+    std::string Name = FD->getNameAsString();
+    if (function_names.count(Name) == 0) {
+      function_names.insert(Name);
+      imports.insert(FD->getLocation().printToString(*Result.SourceManager));
+    }
+  }
+}
+
+void ImportMatcher::registerMatchers(clang::ast_matchers::MatchFinder &Finder) {
   auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
   auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
-  Finder.addMatcher(MsgMatcher, &MsgCallback);
-  Finder.addMatcher(CallMatcher, &CallCallback);
+  Finder.addMatcher(MsgMatcher, &msgCallback);
+  Finder.addMatcher(CallMatcher, &callCallback);
 }
 
-std::vector<std::string> collectImports() {
-  std::vector<std::string> imports;
+std::vector<std::string> ImportMatcher::collectImports() {
+  std::vector<std::string> outports;
+  std::copy(imports.begin(), imports.end(), back_inserter(outports));
 
-  auto &message_imports = MsgCallback.getImports();
-  auto &call_imports = CallCallback.getImports();
-  std::copy(message_imports.begin(), message_imports.end(), back_inserter(imports));
-  std::copy(call_imports.begin(), call_imports.end(), back_inserter(imports));
-
-  return imports;
+  return outports;
 }
 
+}

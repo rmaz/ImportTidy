@@ -51,6 +51,7 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace clang::tooling;
 using namespace llvm;
+using namespace import_tidy;
 
 // Set up the command line options
 static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
@@ -62,9 +63,11 @@ int main(int argc, const char **argv) {
   RefactoringTool Tool(OptionsParser.getCompilations(),
                        OptionsParser.getSourcePathList());
   MatchFinder Finder;
-  registerMatchers(Finder);
+  ImportMatcher IM;
+
+  IM.registerMatchers(Finder);
   Tool.run(newFrontendActionFactory(&Finder).get());
-  auto imports = collectImports();
+  auto imports = IM.collectImports();
 
   raw_ostream &OS = outs();
   for (auto i = imports.cbegin(); i != imports.cend(); i++) {
