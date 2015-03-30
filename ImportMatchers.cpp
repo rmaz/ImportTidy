@@ -30,20 +30,26 @@ namespace import_tidy {
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *E = Result.Nodes.getNodeAs<CallExpr>(nodeKey)) {
       auto *FD = E->getDirectCallee();
-      auto Name = FD->getNameAsString();
-      if (function_names.count(Name) == 0) {
-        function_names.insert(Name);
-        imports.insert(FD->getLocation().printToString(*Result.SourceManager));
-      }
+      auto &SM = *Result.SourceManager;
+      matcher.addImportFile(FD->getLocation().printToString(SM), true);
     }
   }
 
   void InterfaceCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(nodeKey)) {
-      imports.insert(ID->getLocation().printToString(*Result.SourceManager));
+      auto &SM = *Result.SourceManager;
+      auto inMainFile = SM.isInMainFile(ID->getLocation());
+
+      if (auto *SC = ID->getSuperClass()) {
+        matcher.addImportFile(SC->getLocation().printToString(SM), inMainFile);
+      }
+
+      if (!inMainFile) {
+        matcher.addImportFile(ID->getLocation().printToString(SM), true);
+      }
 
       for (auto P = ID->protocol_begin(); P != ID->protocol_end(); P++) {
-        imports.insert((*P)->getLocation().printToString(*Result.SourceManager));
+        matcher.addImportFile((*P)->getLocation().printToString(SM), inMainFile);
       }
     }
   }
@@ -52,9 +58,10 @@ namespace import_tidy {
     if (auto *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
       auto *ID = E->getReceiverInterface();
       auto Name = ID->getNameAsString();
-      if (class_names.count(Name) == 0) {
-        class_names.insert(Name);
-        imports.insert(ID->getLocation().printToString(*Result.SourceManager));
+      if (classNames.count(Name) == 0) {
+        classNames.insert(Name);
+        auto &SM = *Result.SourceManager;
+        matcher.addImportFile(ID->getLocation().printToString(SM), true);
       }
     }
   }
@@ -68,10 +75,26 @@ namespace import_tidy {
     Finder.addMatcher(MsgMatcher, &msgCallback);
   }
 
-  std::vector<std::string> ImportMatcher::collectImports() {
-    std::vector<std::string> outports;
-    std::copy(imports.begin(), imports.end(), back_inserter(outports));
-
-    return outports;
+  void ImportMatcher::addImportFile(std::string Path, bool InImplementation) {
+      if (InImplementation) impImports.insert(Path);
+      else headerImports.insert(Path);
   }
+
+  void ImportMatcher::dumpImports(raw_ostream& out) {
+    out << "Header Imports" << '\n';
+    out << "==============" << '\n';
+
+    for (auto i = headerImports.begin(); i != headerImports.end(); i++) {
+      out << *i << '\n';
+    }
+
+    out << '\n';
+    out << "Implementation Imports" << '\n';
+    out << "======================" << '\n';
+
+    for (auto i = impImports.begin(); i != impImports.end(); i++) {
+      out << *i << '\n';
+    }
+  }
+
 } // end namespace import_tidy

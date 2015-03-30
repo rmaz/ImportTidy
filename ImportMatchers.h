@@ -3,47 +3,50 @@
 
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
+#include <string>
 #include <unordered_set>
 
 using namespace clang::ast_matchers;
 
 namespace import_tidy {
+  class ImportMatcher;
+
   class CallExprCallback : public MatchFinder::MatchCallback {
   public:
-    CallExprCallback(std::unordered_set<std::string> &imports) :
-      imports(imports), function_names() { };
+    CallExprCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
     void run(const MatchFinder::MatchResult &Result) override;
   private:
-    std::unordered_set<std::string> &imports, function_names;
+    ImportMatcher &matcher;
   };
 
   class InterfaceCallback : public MatchFinder::MatchCallback {
   public:
-    InterfaceCallback(std::unordered_set<std::string> &imports) :
-      imports(imports) { };
+    InterfaceCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
     void run(const MatchFinder::MatchResult &Result) override;
   private:
-    std::unordered_set<std::string> &imports;
+    ImportMatcher &matcher;
   };
 
   class MessageExprCallback : public MatchFinder::MatchCallback {
   public:
-    MessageExprCallback(std::unordered_set<std::string> &imports) :
-    imports(imports), class_names() { };
+    MessageExprCallback(ImportMatcher &Matcher) :
+      matcher(Matcher), classNames() { };
     void run(const MatchFinder::MatchResult &Result) override;
   private:
-    std::unordered_set<std::string> &imports, class_names;
+    ImportMatcher &matcher;
+    std::unordered_set<std::string> classNames;
   };
 
   class ImportMatcher {
   public:
-    ImportMatcher() :
-      imports(), msgCallback(imports), callCallback(imports),
-      interfaceCallback(imports) { };
+    ImportMatcher() : headerImports(), headerClasses(), impImports(),
+      callCallback(*this), interfaceCallback(*this), msgCallback(*this) { };
     void registerMatchers(MatchFinder&);
-    std::vector<std::string> collectImports();
+    void dumpImports(llvm::raw_ostream&);
+    void addHeaderForwardDeclare(llvm::StringRef Name) { };
+    void addImportFile(std::string Path, bool InImplementation);
   private:
-    std::unordered_set<std::string> imports;
+    std::unordered_set<std::string> headerImports, headerClasses, impImports;
     CallExprCallback callCallback;
     InterfaceCallback interfaceCallback;
     MessageExprCallback msgCallback;

@@ -67,12 +67,7 @@ int main(int argc, const char **argv) {
 
   IM.registerMatchers(Finder);
   Tool.run(newFrontendActionFactory(&Finder).get());
-  auto imports = IM.collectImports();
-
-  raw_ostream &OS = outs();
-  for (auto i = imports.cbegin(); i != imports.cend(); i++) {
-    OS << *i << '\n';
-  }
+  IM.dumpImports(outs());
 
   return 0;
 }
