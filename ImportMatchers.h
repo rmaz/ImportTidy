@@ -14,7 +14,7 @@ namespace import_tidy {
   class CallExprCallback : public MatchFinder::MatchCallback {
   public:
     CallExprCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
-    void run(const MatchFinder::MatchResult &Result) override;
+    void run(const MatchFinder::MatchResult&) override;
   private:
     ImportMatcher &matcher;
   };
@@ -22,7 +22,7 @@ namespace import_tidy {
   class InterfaceCallback : public MatchFinder::MatchCallback {
   public:
     InterfaceCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
-    void run(const MatchFinder::MatchResult &Result) override;
+    void run(const MatchFinder::MatchResult&) override;
   private:
     ImportMatcher &matcher;
   };
@@ -31,25 +31,36 @@ namespace import_tidy {
   public:
     MessageExprCallback(ImportMatcher &Matcher) :
       matcher(Matcher), classNames() { };
-    void run(const MatchFinder::MatchResult &Result) override;
+    void run(const MatchFinder::MatchResult&) override;
   private:
     ImportMatcher &matcher;
     std::unordered_set<std::string> classNames;
   };
 
+  class MethodCallback : public MatchFinder::MatchCallback {
+  public:
+    MethodCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
+    void run(const MatchFinder::MatchResult&) override;
+  private:
+    void addType(clang::QualType);
+    ImportMatcher &matcher;
+  };
+
   class ImportMatcher {
   public:
-    ImportMatcher() : headerImports(), headerClasses(), impImports(),
-      callCallback(*this), interfaceCallback(*this), msgCallback(*this) { };
+    ImportMatcher() :
+      headerImports(), headerClasses(), impImports(), callCallback(*this),
+      interfaceCallback(*this), msgCallback(*this), mtdCallback(*this) { };
     void registerMatchers(MatchFinder&);
     void dumpImports(llvm::raw_ostream&);
-    void addHeaderForwardDeclare(llvm::StringRef Name) { };
+    void addHeaderForwardDeclare(llvm::StringRef Name);
     void addImportFile(std::string Path, bool InImplementation);
   private:
     std::unordered_set<std::string> headerImports, headerClasses, impImports;
     CallExprCallback callCallback;
     InterfaceCallback interfaceCallback;
     MessageExprCallback msgCallback;
+    MethodCallback mtdCallback;
   };
 };
 

@@ -12,6 +12,7 @@ namespace clang {
 namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interface;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> method;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
     if (auto *ImpDecl = Node.getImplementation()) {
@@ -20,6 +21,19 @@ namespace ast_matchers {
     } else {
       return false;
     }
+  }
+
+  AST_MATCHER(ObjCMethodDecl, isDefinedInHeader) {
+    auto *ID = Node.getClassInterface();
+    if (!ID || !ID->getImplementation())
+      return false;
+
+    auto &SM = Finder->getASTContext().getSourceManager();
+    if (SM.isInMainFile(SM.getExpansionLoc(Node.getLocStart())))
+      return false;
+
+    auto ImpLoc = SM.getExpansionLoc(ID->getImplementation()->getLocStart());
+    return SM.isInMainFile(ImpLoc);
   }
 } // end namespace ast_matchers
 } // end namespace clang
@@ -66,13 +80,38 @@ namespace import_tidy {
     }
   }
 
+  void MethodCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *M = Result.Nodes.getNodeAs<ObjCMethodDecl>(nodeKey)) {
+      addType(M->getReturnType());
+
+      for (auto i = M->param_begin(); i != M->param_end(); i++) {
+        addType((*i)->getType());
+      }
+    }
+  }
+
+  void MethodCallback::addType(QualType T) {
+    if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
+      if (auto *ID = PT->getInterfaceDecl()) {
+        matcher.addHeaderForwardDeclare(ID->getName());
+      }
+    }
+  }
+
   void ImportMatcher::registerMatchers(MatchFinder &Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
+    auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
+
     Finder.addMatcher(CallMatcher, &callCallback);
     Finder.addMatcher(InterfaceMatcher, &interfaceCallback);
     Finder.addMatcher(MsgMatcher, &msgCallback);
+    Finder.addMatcher(MtdMatcher, &mtdCallback);
+  }
+
+  void ImportMatcher::addHeaderForwardDeclare(llvm::StringRef Name) {
+    headerClasses.insert(Name.str());
   }
 
   void ImportMatcher::addImportFile(std::string Path, bool InImplementation) {
@@ -85,6 +124,14 @@ namespace import_tidy {
     out << "==============" << '\n';
 
     for (auto i = headerImports.begin(); i != headerImports.end(); i++) {
+      out << *i << '\n';
+    }
+
+    out << '\n';
+    out << "Foward Declares" << '\n';
+    out << "===============" << '\n';
+
+    for (auto i = headerClasses.begin(); i != headerClasses.end(); i++) {
       out << *i << '\n';
     }
 
