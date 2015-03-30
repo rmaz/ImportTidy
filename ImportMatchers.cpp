@@ -42,8 +42,7 @@ namespace import_tidy {
   static const StringRef nodeKey = "key";
 
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
-    if (auto *E = Result.Nodes.getNodeAs<CallExpr>(nodeKey)) {
-      auto *FD = E->getDirectCallee();
+    if (auto *FD = Result.Nodes.getNodeAs<CallExpr>(nodeKey)->getDirectCallee()) {
       auto &SM = *Result.SourceManager;
       matcher.addImportFile(FD->getLocation().printToString(SM), true);
     }
@@ -70,12 +69,18 @@ namespace import_tidy {
 
   void MessageExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
-      auto *ID = E->getReceiverInterface();
-      auto Name = ID->getNameAsString();
-      if (classNames.count(Name) == 0) {
-        classNames.insert(Name);
-        auto &SM = *Result.SourceManager;
+      auto &SM = *Result.SourceManager;
+
+      if (auto *ID = E->getReceiverInterface()) {
         matcher.addImportFile(ID->getLocation().printToString(SM), true);
+      } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
+        assert(Ptr->isObjCQualifiedIdType());
+        for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
+          matcher.addImportFile((*i)->getLocation().printToString(SM), true);
+        }
+      } else {
+        llvm::outs() << "failed to unpack expr of kind " << E->getReceiverKind();
+        assert(0);
       }
     }
   }

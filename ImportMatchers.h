@@ -29,12 +29,10 @@ namespace import_tidy {
 
   class MessageExprCallback : public MatchFinder::MatchCallback {
   public:
-    MessageExprCallback(ImportMatcher &Matcher) :
-      matcher(Matcher), classNames() { };
+    MessageExprCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
     void run(const MatchFinder::MatchResult&) override;
   private:
     ImportMatcher &matcher;
-    std::unordered_set<std::string> classNames;
   };
 
   class MethodCallback : public MatchFinder::MatchCallback {
