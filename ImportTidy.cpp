@@ -34,14 +34,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/ASTMatchers/ASTMatchFinder.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Frontend/FrontendActions.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Refactoring.h"
-#include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Signals.h"
@@ -63,10 +57,8 @@ int main(int argc, const char **argv) {
   RefactoringTool Tool(OptionsParser.getCompilations(),
                        OptionsParser.getSourcePathList());
   MatchFinder Finder;
-  ImportMatcher IM;
-
-  IM.registerMatchers(Finder);
-  Tool.run(newFrontendActionFactory(&Finder).get());
+  ImportMatcher IM(Tool.getReplacements());
+  Tool.run(IM.getActionFactory(Finder).get());
   IM.dumpImports(outs());
 
   return 0;

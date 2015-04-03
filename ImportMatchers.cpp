@@ -2,10 +2,12 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/ASTMatchers/ASTMatchersInternal.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/Lex/Preprocessor.h"
 #include <unordered_set>
 
 using namespace clang;
 using namespace clang::ast_matchers;
+using namespace clang::tooling;
 using namespace import_tidy;
 
 namespace clang {
@@ -38,8 +40,46 @@ namespace ast_matchers {
 } // end namespace ast_matchers
 } // end namespace clang
 
+namespace {
+  class ImportCallbacks : public clang::PPCallbacks {
+  public:
+    ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
+      SM(SM), Matcher(M) { };
+
+    void InclusionDirective(SourceLocation HashLoc,
+                            const Token &IncludeTok,
+                            StringRef FileName,
+                            bool IsAngled,
+                            CharSourceRange FilenameRange,
+                            const FileEntry *File,
+                            StringRef SearchPath,
+                            StringRef RelativePath,
+                            const Module *Imported) override {
+      if (SM.isInMainFile(HashLoc)) {
+        auto *fileStart = SM.getBuffer(SM.getMainFileID())->getBufferStart();
+        auto start = SM.getFileOffset(HashLoc);
+        auto end = strchr(fileStart + start, '\n') - fileStart;
+        Matcher.removeImport(Replacement(SM, HashLoc, end - start + 1, ""));
+      }
+    }
+  private:
+    const SourceManager &SM;
+    ImportMatcher &Matcher;
+  };
+
+} // end anonymous namespace
+
 namespace import_tidy {
   static const StringRef nodeKey = "key";
+
+  bool FileCallbacks::handleBeginSource(CompilerInstance &CI, StringRef Filename) {
+    auto &SM = CI.getSourceManager();
+    auto &PP = CI.getPreprocessor();
+    PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, matcher)));
+    return true;
+  }
+
+  void FileCallbacks::handleEndSource() { }
 
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *FD = Result.Nodes.getNodeAs<CallExpr>(nodeKey)->getDirectCallee()) {
@@ -103,16 +143,18 @@ namespace import_tidy {
     }
   }
 
-  void ImportMatcher::registerMatchers(MatchFinder &Finder) {
+  std::unique_ptr<FrontendActionFactory>
+  ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
-
     Finder.addMatcher(CallMatcher, &callCallback);
     Finder.addMatcher(InterfaceMatcher, &interfaceCallback);
     Finder.addMatcher(MsgMatcher, &msgCallback);
     Finder.addMatcher(MtdMatcher, &mtdCallback);
+
+    return newFrontendActionFactory(&Finder, &fileCallbacks);
   }
 
   void ImportMatcher::addHeaderForwardDeclare(llvm::StringRef Name) {
@@ -122,6 +164,10 @@ namespace import_tidy {
   void ImportMatcher::addImportFile(std::string Path, bool InImplementation) {
       if (InImplementation) impImports.insert(Path);
       else headerImports.insert(Path);
+  }
+
+  void ImportMatcher::removeImport(Replacement R) {
+    replacements.insert(R);
   }
 
   void ImportMatcher::dumpImports(raw_ostream& out) {
