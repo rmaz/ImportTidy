@@ -3,7 +3,7 @@
 #include "clang/ASTMatchers/ASTMatchersInternal.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/Lex/Preprocessor.h"
-#include <unordered_set>
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -59,7 +59,7 @@ namespace {
         auto *fileStart = SM.getBuffer(SM.getMainFileID())->getBufferStart();
         auto start = SM.getFileOffset(HashLoc);
         auto end = strchr(fileStart + start, '\n') - fileStart;
-        Matcher.removeImport(Replacement(SM, HashLoc, end - start + 1, ""));
+        Matcher.addReplacement(Replacement(SM, HashLoc, end - start + 1, ""));
       }
     }
   private:
@@ -79,30 +79,32 @@ namespace import_tidy {
     return true;
   }
 
-  void FileCallbacks::handleEndSource() { }
+  void FileCallbacks::handleEndSource() {
+    matcher.flush();
+  }
 
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *FD = Result.Nodes.getNodeAs<CallExpr>(nodeKey)->getDirectCallee()) {
       auto &SM = *Result.SourceManager;
-      matcher.addImportFile(FD->getLocation().printToString(SM), true);
+      matcher.addImport(SM.getMainFileID(), FD->getLocation(), SM);
     }
   }
 
   void InterfaceCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(nodeKey)) {
       auto &SM = *Result.SourceManager;
-      auto inMainFile = SM.isInMainFile(ID->getLocation());
+      auto InFile = SM.getFileID(ID->getLocation());
 
       if (auto *SC = ID->getSuperClass()) {
-        matcher.addImportFile(SC->getLocation().printToString(SM), inMainFile);
+        matcher.addImport(InFile, SC->getLocation(), SM);
       }
 
-      if (!inMainFile) {
-        matcher.addImportFile(ID->getLocation().printToString(SM), true);
+      if (InFile != SM.getMainFileID()) {
+        matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       }
 
       for (auto P = ID->protocol_begin(); P != ID->protocol_end(); P++) {
-        matcher.addImportFile((*P)->getLocation().printToString(SM), inMainFile);
+        matcher.addImport(InFile, (*P)->getLocation(), SM);
       }
     }
   }
@@ -112,11 +114,11 @@ namespace import_tidy {
       auto &SM = *Result.SourceManager;
 
       if (auto *ID = E->getReceiverInterface()) {
-        matcher.addImportFile(ID->getLocation().printToString(SM), true);
+        matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
         assert(Ptr->isObjCQualifiedIdType());
         for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
-          matcher.addImportFile((*i)->getLocation().printToString(SM), true);
+          matcher.addImport(SM.getMainFileID(), (*i)->getLocation(), SM);
         }
       } else {
         llvm::outs() << "failed to unpack expr of kind " << E->getReceiverKind();
@@ -127,18 +129,19 @@ namespace import_tidy {
 
   void MethodCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *M = Result.Nodes.getNodeAs<ObjCMethodDecl>(nodeKey)) {
-      addType(M->getReturnType());
+      auto FID = Result.SourceManager->getFileID(M->getLocation());
+      addType(FID, M->getReturnType());
 
       for (auto i = M->param_begin(); i != M->param_end(); i++) {
-        addType((*i)->getType());
+        addType(FID, (*i)->getType());
       }
     }
   }
 
-  void MethodCallback::addType(QualType T) {
+  void MethodCallback::addType(const FileID InFile, QualType T) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       if (auto *ID = PT->getInterfaceDecl()) {
-        matcher.addHeaderForwardDeclare(ID->getName());
+        matcher.addForwardDeclare(InFile, ID->getName());
       }
     }
   }
@@ -157,41 +160,68 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &fileCallbacks);
   }
 
-  void ImportMatcher::addHeaderForwardDeclare(llvm::StringRef Name) {
-    headerClasses.insert(Name.str());
+  void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+
+    Import << "@class " << Name << ";";
+    addImport(InFile, Import.str());
   }
 
-  void ImportMatcher::addImportFile(std::string Path, bool InImplementation) {
-      if (InImplementation) impImports.insert(Path);
-      else headerImports.insert(Path);
-  }
+  static std::string importForLocation(const SourceLocation Loc, const SourceManager &SM) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+    auto Path = SM.getFilename(Loc);
 
-  void ImportMatcher::removeImport(Replacement R) {
-    replacements.insert(R);
-  }
+    // TODO: handle modules
 
-  void ImportMatcher::dumpImports(raw_ostream& out) {
-    out << "Header Imports" << '\n';
-    out << "==============" << '\n';
+    if (SM.isInSystemHeader(Loc)) {
+      // if this is a framework, get the catchall header
+      // otherwise just import the include verbatim
+      auto i = Path.find(".framework");
+      if (i != llvm::StringRef::npos) {
+        auto Start = Path.rfind('/', i) + 1;
+        auto Name = Path.substr(Start, i - Start);
+        Import << "#import <" << Name << '/' << Name << ".h>";
+      } else if ((i = Path.rfind("usr/include/"))) {
+        auto Start = i + strlen("usr/include/");
+        auto Name = Path.substr(Start);
+        Import << "#import <" << Name << ">";
+      }
+    } else {
+      // TODO: work out somehow if this import could go in the triangle brackets
+      // probably if it has already been imported via an umbrella header or something
+      auto Name = Path.drop_front(Path.find_last_of('/') + 1);
 
-    for (auto i = headerImports.begin(); i != headerImports.end(); i++) {
-      out << *i << '\n';
+      Import << "#import " << '"' << Name << '"';
     }
+    return Import.str();
+  }
 
-    out << '\n';
-    out << "Foward Declares" << '\n';
-    out << "===============" << '\n';
+  void ImportMatcher::addImport(const FileID InFile, const SourceLocation ImportLoc, const SourceManager &SM) {
+    addImport(InFile, importForLocation(ImportLoc, SM));
+  }
 
-    for (auto i = headerClasses.begin(); i != headerClasses.end(); i++) {
-      out << *i << '\n';
-    }
+  void ImportMatcher::addImport(const FileID InFile, std::string Import) {
+    imports[InFile].insert(Import);
+  }
 
-    out << '\n';
-    out << "Implementation Imports" << '\n';
-    out << "======================" << '\n';
+  void ImportMatcher::addReplacement(Replacement R) {
+    //replacements.insert(R);
+    llvm::outs() << "adding replacement: " << R.getReplacementText() << '\n';
+  }
 
-    for (auto i = impImports.begin(); i != impImports.end(); i++) {
-      out << *i << '\n';
+  void ImportMatcher::flush() {
+    auto &out = llvm::outs();
+
+    for (auto i = imports.cbegin(); i != imports.cend(); i++) {
+      out << "File ID: " << i->first.getHashValue() << "\n";
+
+      for (auto j = i->second.cbegin(); j != i->second.cend(); j++) {
+        out << (*j) << "\n";
+      }
+
+      out << "\n";
     }
   }
 

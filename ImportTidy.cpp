@@ -58,8 +58,7 @@ int main(int argc, const char **argv) {
                        OptionsParser.getSourcePathList());
   MatchFinder Finder;
   ImportMatcher IM(Tool.getReplacements());
-  Tool.run(IM.getActionFactory(Finder).get());
-  IM.dumpImports(outs());
+  Tool.runAndSave(IM.getActionFactory(Finder).get());
 
   return 0;
 }

@@ -8,6 +8,7 @@
 #include "clang/Tooling/Tooling.h"
 #include "clang/Tooling/Refactoring.h"
 #include <string>
+#include <map>
 #include <unordered_set>
 
 namespace import_tidy {
@@ -51,25 +52,29 @@ namespace import_tidy {
     MethodCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
-    void addType(clang::QualType);
+    void addType(const clang::FileID, clang::QualType);
     ImportMatcher &matcher;
   };
 
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
-      headerImports(), headerClasses(), impImports(), callCallback(*this),
-      interfaceCallback(*this), msgCallback(*this), mtdCallback(*this),
+      imports(), callCallback(*this),interfaceCallback(*this),
+      msgCallback(*this), mtdCallback(*this),
       fileCallbacks(*this), replacements(Replacements) { };
 
     std::unique_ptr<clang::tooling::FrontendActionFactory>
       getActionFactory(clang::ast_matchers::MatchFinder&);
-    void dumpImports(llvm::raw_ostream&);
-    void addHeaderForwardDeclare(llvm::StringRef Name);
-    void addImportFile(std::string Path, bool InImplementation);
-    void removeImport(clang::tooling::Replacement R);
+    void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name);
+    void addImport(const clang::FileID InFile,
+                   const clang::SourceLocation ImportLocation,
+                   const clang::SourceManager&);
+    void addReplacement(clang::tooling::Replacement R);
+    void flush();
   private:
-    std::unordered_set<std::string> headerImports, headerClasses, impImports;
+    void addImport(const clang::FileID, std::string);
+
+    std::map<clang::FileID, std::unordered_set<std::string>> imports;
     CallExprCallback callCallback;
     InterfaceCallback interfaceCallback;
     MessageExprCallback msgCallback;
