@@ -59,7 +59,8 @@ namespace import_tidy {
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
-      imports(), callCallback(*this),interfaceCallback(*this),
+      imports(), libraryIncludes(),
+      callCallback(*this),interfaceCallback(*this),
       msgCallback(*this), mtdCallback(*this),
       fileCallbacks(*this), replacements(Replacements) { };
 
@@ -69,12 +70,16 @@ namespace import_tidy {
     void addImport(const clang::FileID InFile,
                    const clang::SourceLocation ImportLocation,
                    const clang::SourceManager&);
+    void addLibraryInclude(llvm::StringRef, llvm::StringRef);
     void addReplacement(clang::tooling::Replacement R);
     void flush();
   private:
     void addImport(const clang::FileID, std::string);
+    std::string importForLocation(const clang::SourceLocation,
+                                  const clang::SourceManager&);
 
     std::map<clang::FileID, std::unordered_set<std::string>> imports;
+    std::map<std::string, std::unordered_set<std::string>> libraryIncludes;
     CallExprCallback callCallback;
     InterfaceCallback interfaceCallback;
     MessageExprCallback msgCallback;

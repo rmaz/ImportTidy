@@ -41,6 +41,44 @@ namespace ast_matchers {
 } // end namespace clang
 
 namespace {
+
+  static bool isInFramework(StringRef Path) {
+    return Path.find(".framework/") != llvm::StringRef::npos;
+  }
+
+  static StringRef frameworkName(StringRef Path) {
+    auto End = Path.find(".framework/");
+    auto Start = Path.rfind('/', End) + 1;
+    return Path.substr(Start, End - Start);
+  }
+
+  static std::string importForFrameworkName(StringRef Name) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+
+    Import << "#import <" << Name << '/' << Name << ".h>";
+    return Import.str();
+  }
+
+  static std::string importForSystemLibrary(StringRef Path) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+    
+    auto Start = Path.rfind("usr/include/") + strlen("usr/include/");
+    auto Name = Path.substr(Start);
+    Import << "#import <" << Name << ">";
+    return Import.str();
+  }
+
+  static std::string importForFile(StringRef Path) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+
+    auto Name = Path.drop_front(Path.find_last_of('/') + 1);
+    Import << "#import " << '"' << Name << '"';
+    return Import.str();
+  }
+
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -60,7 +98,14 @@ namespace {
         auto start = SM.getFileOffset(HashLoc);
         auto end = strchr(fileStart + start, '\n') - fileStart;
         Matcher.addReplacement(Replacement(SM, HashLoc, end - start + 1, ""));
+      } else if (SM.isInSystemHeader(HashLoc)) {
+        auto InFile = SM.getFilename(HashLoc);
+        if (isInFramework(InFile) && !isInFramework(File->getName())) {
+          Matcher.addLibraryInclude(frameworkName(InFile), File->getName());
+        }
       }
+
+      // TODO: make this work for header files too
     }
   private:
     const SourceManager &SM;
@@ -160,42 +205,16 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &fileCallbacks);
   }
 
+  void ImportMatcher::addLibraryInclude(StringRef Framework, StringRef ForFile) {
+    libraryIncludes[Framework].insert(ForFile);
+  }
+
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
     std::string import;
     llvm::raw_string_ostream Import(import);
 
     Import << "@class " << Name << ";";
     addImport(InFile, Import.str());
-  }
-
-  static std::string importForLocation(const SourceLocation Loc, const SourceManager &SM) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-    auto Path = SM.getFilename(Loc);
-
-    // TODO: handle modules
-
-    if (SM.isInSystemHeader(Loc)) {
-      // if this is a framework, get the catchall header
-      // otherwise just import the include verbatim
-      auto i = Path.find(".framework");
-      if (i != llvm::StringRef::npos) {
-        auto Start = Path.rfind('/', i) + 1;
-        auto Name = Path.substr(Start, i - Start);
-        Import << "#import <" << Name << '/' << Name << ".h>";
-      } else if ((i = Path.rfind("usr/include/"))) {
-        auto Start = i + strlen("usr/include/");
-        auto Name = Path.substr(Start);
-        Import << "#import <" << Name << ">";
-      }
-    } else {
-      // TODO: work out somehow if this import could go in the triangle brackets
-      // probably if it has already been imported via an umbrella header or something
-      auto Name = Path.drop_front(Path.find_last_of('/') + 1);
-
-      Import << "#import " << '"' << Name << '"';
-    }
-    return Import.str();
   }
 
   void ImportMatcher::addImport(const FileID InFile, const SourceLocation ImportLoc, const SourceManager &SM) {
@@ -208,7 +227,6 @@ namespace import_tidy {
 
   void ImportMatcher::addReplacement(Replacement R) {
     //replacements.insert(R);
-    llvm::outs() << "adding replacement: " << R.getReplacementText() << '\n';
   }
 
   void ImportMatcher::flush() {
@@ -225,4 +243,29 @@ namespace import_tidy {
     }
   }
 
+  std::string ImportMatcher::importForLocation(const SourceLocation Loc,
+                                               const SourceManager &SM) {
+    auto Path = SM.getFilename(Loc);
+
+    // TODO: handle modules
+
+    if (SM.isInSystemHeader(Loc)) {
+      // if this is a framework, get the catchall header
+      // otherwise just import the include verbatim
+      if (isInFramework(Path)) {
+        return importForFrameworkName(frameworkName(Path));
+      } else {
+        for (auto i = libraryIncludes.cbegin(); i != libraryIncludes.cend(); i++) {
+          if (i->second.count(Path)) {
+            return importForFrameworkName(i->first);
+          }
+        }
+        return importForSystemLibrary(Path);
+      }
+    } else {
+      // TODO: work out somehow if this import could go in the triangle brackets
+      // probably if it has already been imported via an umbrella header or something
+      return importForFile(Path);
+    }
+  }
 } // end namespace import_tidy
