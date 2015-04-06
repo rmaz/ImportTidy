@@ -16,53 +16,54 @@ namespace import_tidy {
 
   class FileCallbacks : public clang::tooling::SourceFileCallbacks {
   public:
-    FileCallbacks(ImportMatcher &Matcher) : matcher(Matcher) { };
+    FileCallbacks(ImportMatcher &Matcher) : Matcher(Matcher) { };
     bool handleBeginSource(clang::CompilerInstance&, llvm::StringRef) override;
     void handleEndSource() override;
   private:
-    ImportMatcher &matcher;
+    ImportMatcher &Matcher;
+    const clang::SourceManager *SourceMgr;
   };
 
   class CallExprCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    CallExprCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
+    CallExprCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
-    ImportMatcher &matcher;
+    ImportMatcher &Matcher;
   };
 
   class InterfaceCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    InterfaceCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
+    InterfaceCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
-    ImportMatcher &matcher;
+    ImportMatcher &Matcher;
   };
 
   class MessageExprCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    MessageExprCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
+    MessageExprCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
-    ImportMatcher &matcher;
+    ImportMatcher &Matcher;
   };
 
   class MethodCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    MethodCallback(ImportMatcher &Matcher) : matcher(Matcher) { };
+    MethodCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
     void addType(const clang::FileID, clang::QualType);
-    ImportMatcher &matcher;
+    ImportMatcher &Matcher;
   };
 
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
-      imports(), libraryIncludes(),
-      callCallback(*this),interfaceCallback(*this),
-      msgCallback(*this), mtdCallback(*this),
-      fileCallbacks(*this), replacements(Replacements) { };
+      ImportOffset(), ImportMap(), FrameworkImportMap(),
+      CallCallback(*this), InterfaceCallback(*this),
+      MsgCallback(*this), MtdCallback(*this),
+      FileCallbacks(*this), Replacements(Replacements) { };
 
     std::unique_ptr<clang::tooling::FrontendActionFactory>
       getActionFactory(clang::ast_matchers::MatchFinder&);
@@ -71,21 +72,22 @@ namespace import_tidy {
                    const clang::SourceLocation ImportLocation,
                    const clang::SourceManager&);
     void addLibraryInclude(llvm::StringRef, llvm::StringRef);
-    void addReplacement(clang::tooling::Replacement R);
-    void flush();
+    void removeImport(const clang::SourceLocation, const clang::SourceManager&);
+    void flush(const clang::SourceManager&);
   private:
     void addImport(const clang::FileID, std::string);
     std::string importForLocation(const clang::SourceLocation,
                                   const clang::SourceManager&);
 
-    std::map<clang::FileID, std::unordered_set<std::string>> imports;
-    std::map<std::string, std::unordered_set<std::string>> libraryIncludes;
-    CallExprCallback callCallback;
-    InterfaceCallback interfaceCallback;
-    MessageExprCallback msgCallback;
-    MethodCallback mtdCallback;
-    FileCallbacks fileCallbacks;
-    clang::tooling::Replacements &replacements;
+    std::map<clang::FileID, unsigned> ImportOffset;
+    std::map<clang::FileID, std::unordered_set<std::string>> ImportMap;
+    std::map<std::string, std::unordered_set<std::string>> FrameworkImportMap;
+    CallExprCallback CallCallback;
+    InterfaceCallback InterfaceCallback;
+    MessageExprCallback MsgCallback;
+    MethodCallback MtdCallback;
+    FileCallbacks FileCallbacks;
+    clang::tooling::Replacements &Replacements;
   };
 };
 

@@ -4,6 +4,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -94,10 +95,7 @@ namespace {
                             StringRef RelativePath,
                             const Module *Imported) override {
       if (SM.isInMainFile(HashLoc)) {
-        auto *fileStart = SM.getBuffer(SM.getMainFileID())->getBufferStart();
-        auto start = SM.getFileOffset(HashLoc);
-        auto end = strchr(fileStart + start, '\n') - fileStart;
-        Matcher.addReplacement(Replacement(SM, HashLoc, end - start + 1, ""));
+        Matcher.removeImport(HashLoc, SM);
       } else if (SM.isInSystemHeader(HashLoc)) {
         auto InFile = SM.getFilename(HashLoc);
         if (isInFramework(InFile) && !isInFramework(File->getName())) {
@@ -120,18 +118,20 @@ namespace import_tidy {
   bool FileCallbacks::handleBeginSource(CompilerInstance &CI, StringRef Filename) {
     auto &SM = CI.getSourceManager();
     auto &PP = CI.getPreprocessor();
-    PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, matcher)));
+    PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, Matcher)));
+    SourceMgr = &SM;
+
     return true;
   }
 
   void FileCallbacks::handleEndSource() {
-    matcher.flush();
+    Matcher.flush(*SourceMgr);
   }
 
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *FD = Result.Nodes.getNodeAs<CallExpr>(nodeKey)->getDirectCallee()) {
       auto &SM = *Result.SourceManager;
-      matcher.addImport(SM.getMainFileID(), FD->getLocation(), SM);
+      Matcher.addImport(SM.getMainFileID(), FD->getLocation(), SM);
     }
   }
 
@@ -141,15 +141,15 @@ namespace import_tidy {
       auto InFile = SM.getFileID(ID->getLocation());
 
       if (auto *SC = ID->getSuperClass()) {
-        matcher.addImport(InFile, SC->getLocation(), SM);
+        Matcher.addImport(InFile, SC->getLocation(), SM);
       }
 
       if (InFile != SM.getMainFileID()) {
-        matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
+        Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       }
 
       for (auto P = ID->protocol_begin(); P != ID->protocol_end(); P++) {
-        matcher.addImport(InFile, (*P)->getLocation(), SM);
+        Matcher.addImport(InFile, (*P)->getLocation(), SM);
       }
     }
   }
@@ -159,11 +159,11 @@ namespace import_tidy {
       auto &SM = *Result.SourceManager;
 
       if (auto *ID = E->getReceiverInterface()) {
-        matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
+        Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
         assert(Ptr->isObjCQualifiedIdType());
         for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
-          matcher.addImport(SM.getMainFileID(), (*i)->getLocation(), SM);
+          Matcher.addImport(SM.getMainFileID(), (*i)->getLocation(), SM);
         }
       } else {
         llvm::outs() << "failed to unpack expr of kind " << E->getReceiverKind();
@@ -186,7 +186,7 @@ namespace import_tidy {
   void MethodCallback::addType(const FileID InFile, QualType T) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       if (auto *ID = PT->getInterfaceDecl()) {
-        matcher.addForwardDeclare(InFile, ID->getName());
+        Matcher.addForwardDeclare(InFile, ID->getName());
       }
     }
   }
@@ -197,16 +197,16 @@ namespace import_tidy {
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
-    Finder.addMatcher(CallMatcher, &callCallback);
-    Finder.addMatcher(InterfaceMatcher, &interfaceCallback);
-    Finder.addMatcher(MsgMatcher, &msgCallback);
-    Finder.addMatcher(MtdMatcher, &mtdCallback);
+    Finder.addMatcher(CallMatcher, &CallCallback);
+    Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
+    Finder.addMatcher(MsgMatcher, &MsgCallback);
+    Finder.addMatcher(MtdMatcher, &MtdCallback);
 
-    return newFrontendActionFactory(&Finder, &fileCallbacks);
+    return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
   void ImportMatcher::addLibraryInclude(StringRef Framework, StringRef ForFile) {
-    libraryIncludes[Framework].insert(ForFile);
+    FrameworkImportMap[Framework].insert(ForFile);
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
@@ -222,24 +222,35 @@ namespace import_tidy {
   }
 
   void ImportMatcher::addImport(const FileID InFile, std::string Import) {
-    imports[InFile].insert(Import);
+    ImportMap[InFile].insert(Import);
   }
 
-  void ImportMatcher::addReplacement(Replacement R) {
-    //replacements.insert(R);
+  void ImportMatcher::removeImport(const SourceLocation Loc, const SourceManager &SM) {
+    auto fid = SM.getFileID(Loc);
+    auto *fileStart = SM.getBuffer(fid)->getBufferStart();
+    unsigned start = SM.getFileOffset(Loc);
+    unsigned end = strchr(fileStart + start, '\n') - fileStart;
+
+    // TODO: this is a dangerous assumption, should be modelled as a set of ranges
+    ImportOffset[fid] = std::max(ImportOffset[fid], end);
   }
 
-  void ImportMatcher::flush() {
+  void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
 
-    for (auto i = imports.cbegin(); i != imports.cend(); i++) {
-      out << "File ID: " << i->first.getHashValue() << "\n";
+    for (auto i = ImportMap.begin(); i != ImportMap.end(); i++) {
+      auto fid = i->first;
+      out << "File ID: " << fid.getHashValue() << "\n";
+      std::string import;
+      llvm::raw_string_ostream Import(import);
 
-      for (auto j = i->second.cbegin(); j != i->second.cend(); j++) {
-        out << (*j) << "\n";
+      for (auto j = i->second.begin(); j != i->second.end(); j++) {
+        Import << *j << '\n';
       }
+      auto start = SM.getLocForStartOfFile(fid);
+      Replacements.insert(Replacement(SM, start, ImportOffset[fid], Import.str()));
 
-      out << "\n";
+      out << Import.str() << "\n";
     }
   }
 
@@ -255,7 +266,7 @@ namespace import_tidy {
       if (isInFramework(Path)) {
         return importForFrameworkName(frameworkName(Path));
       } else {
-        for (auto i = libraryIncludes.cbegin(); i != libraryIncludes.cend(); i++) {
+        for (auto i = FrameworkImportMap.begin(); i != FrameworkImportMap.end(); i++) {
           if (i->second.count(Path)) {
             return importForFrameworkName(i->first);
           }
