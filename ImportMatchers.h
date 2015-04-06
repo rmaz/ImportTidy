@@ -79,7 +79,7 @@ namespace import_tidy {
     void addImport(const clang::FileID InFile,
                    const clang::SourceLocation ImportLocation,
                    const clang::SourceManager&);
-    void addLibraryInclude(llvm::StringRef, llvm::StringRef);
+    void addLibraryInclude(clang::FileID InHeader, clang::FileID OfHeader);
     void removeImport(const clang::SourceLocation, const clang::SourceManager&);
     void flush(const clang::SourceManager&);
   private:
@@ -89,7 +89,7 @@ namespace import_tidy {
 
     std::map<clang::FileID, unsigned> ImportOffset;
     std::map<clang::FileID, std::set<std::string>> ImportMap;
-    std::map<std::string, std::set<std::string>> LibraryImportMap;
+    std::map<clang::FileID, std::set<clang::FileID>> LibraryImportMap;
     CallExprCallback CallCallback;
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;

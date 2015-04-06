@@ -50,16 +50,6 @@ namespace {
     return Path.substr(Start, End - Start);
   }
 
-  static StringRef libraryName(StringRef Path) {
-    auto LastSplit = Path.rfind('/');
-    auto PrevSplit = Path.rfind('/', LastSplit);
-    if (PrevSplit == llvm::StringRef::npos) {
-      return "";
-    }
-
-    return Path.substr(PrevSplit + 1, LastSplit - PrevSplit - 1);
-  }
-
   static bool isInFramework(StringRef Path) {
     return Path.rfind(".framework/") != llvm::StringRef::npos;
   }
@@ -68,10 +58,12 @@ namespace {
     return Path.rfind("/usr/include/") != llvm::StringRef::npos;
   }
 
-  static bool isUmbrellaHeader(StringRef Path) {
-    auto LastSplit = Path.rfind('/');
-    auto FileName = Path.substr(LastSplit + 1);
-    return FileName.startswith(libraryName(Path));
+  static std::string importForModuleName(StringRef Name) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+
+    Import << "@import " << Name << ";";
+    return Import.str();
   }
 
   static std::string importForLibraryName(StringRef Name) {
@@ -112,6 +104,22 @@ namespace {
     return Import.str();
   }
 
+  static FileID fileIncludingFile(std::map<FileID, std::set<FileID>> &Map, FileID F) {
+    for (auto I : Map) {
+      if (I.second.count(F)) {
+        return I.first;
+      }
+    }
+    return F;
+  }
+
+  static FileID topFileIncludingFile(std::map<FileID, std::set<FileID>> &Map, FileID F) {
+    FileID Top = F;
+    while ((Top = fileIncludingFile(Map, Top)) != Top);
+
+    return Top;
+  }
+
   // TODO: strip out forward declares too
   class ImportCallbacks : public clang::PPCallbacks {
   public:
@@ -128,12 +136,7 @@ namespace {
                             StringRef RelativePath,
                             const Module *Imported) override {
       if (SM.isInSystemHeader(HashLoc)) {
-        auto InFile = SM.getFilename(HashLoc);
-        if (isInFramework(InFile) && isInSystemLibrary(File->getName())) {
-          Matcher.addLibraryInclude(frameworkName(InFile), File->getName());
-        } else if (!isInFramework(InFile) && !isInSystemLibrary(InFile) && isUmbrellaHeader(InFile)) {
-          Matcher.addLibraryInclude(libraryName(InFile), File->getName());
-        }
+        Matcher.addLibraryInclude(SM.getFileID(HashLoc), SM.translateFile(File));
       } else {
         Matcher.removeImport(HashLoc, SM);
       }
@@ -259,8 +262,8 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addLibraryInclude(StringRef LibraryName, StringRef ForFile) {
-    LibraryImportMap[LibraryName].insert(ForFile);
+  void ImportMatcher::addLibraryInclude(FileID InHeader, FileID OfHeader) {
+    LibraryImportMap[InHeader].insert(OfHeader);
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
@@ -316,24 +319,28 @@ namespace import_tidy {
 
   std::string ImportMatcher::importForLocation(const SourceLocation Loc,
                                                const SourceManager &SM) {
-    auto Path = SM.getFilename(Loc);
+    auto FID = topFileIncludingFile(LibraryImportMap, SM.getFileID(Loc));
+    auto L = SM.getLocForStartOfFile(FID);
+    auto Path = SM.getFilename(L);
 
-    // TODO: handle modules
+    if (SM.isLoadedSourceLocation(L)) {
+      return importForModuleName(SM.getModuleImportLoc(Loc).second);
+    }
 
-    if (SM.isInSystemHeader(Loc)) {
-      if (isInFramework(Path)) {
-        return importForLibraryName(frameworkName(Path));
-      }
-      for (auto I : LibraryImportMap) {
-        if (I.second.count(Path)) {
-          return importForLibraryName(I.first);
-        }
-      }
-      return isInSystemLibrary(Path) ? importForSystemLibrary(Path) :
-                                       importForUserLibrary(Path);
-    } else {
+    if (!SM.isInSystemHeader(L)) {
       return importForFile(Path);
     }
+
+    if (isInFramework(Path)) {
+      // TODO: don't assume the catchall name matches
+      return importForLibraryName(frameworkName(Path));
+    }
+
+    if (isInSystemLibrary(Path)) {
+      return importForSystemLibrary(Path);
+    }
+
+    return importForUserLibrary(Path);
   }
 
 } // end namespace import_tidy
