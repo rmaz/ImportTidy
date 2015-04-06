@@ -305,6 +305,8 @@ namespace import_tidy {
       Replacements.insert(Replacement(SM, start, replacementLength, ImportStr.str()));
       out << "File ID: " << fid.getHashValue() << "\n" << ImportStr.str() << "\n";
     }
+    ImportMap.clear();
+    ImportOffset.clear();
   }
 
   std::string ImportMatcher::importForLocation(const SourceLocation Loc,
