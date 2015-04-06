@@ -16,6 +16,7 @@ namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interface;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> method;
+  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocol;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
     if (auto *ImpDecl = Node.getImplementation()) {
@@ -148,8 +149,16 @@ namespace import_tidy {
         Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       }
 
-      for (auto P = ID->protocol_begin(); P != ID->protocol_end(); P++) {
-        Matcher.addImport(InFile, (*P)->getLocation(), SM);
+      for (auto *P : ID->protocols()) {
+        Matcher.addImport(InFile, P->getLocation(), SM);
+      }
+
+      for (auto *C : ID->visible_categories()) {
+        auto CategoryFile = SM.getFileID(C->getLocation());
+
+        for (auto *P : C->protocols()) {
+          Matcher.addImport(CategoryFile, P->getLocation(), SM);
+        }
       }
     }
   }
@@ -191,16 +200,25 @@ namespace import_tidy {
     }
   }
 
+  void ProtocolCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *PD = Result.Nodes.getNodeAs<ObjCProtocolExpr>(nodeKey)->getProtocol()) {
+      auto &SM = *Result.SourceManager;
+      Matcher.addImport(SM.getMainFileID(), PD->getLocation(), SM);
+    }
+  }
+
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
+    auto ProtoMatcher = protocol(isExpansionInMainFile()).bind(nodeKey);
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
     Finder.addMatcher(MsgMatcher, &MsgCallback);
     Finder.addMatcher(MtdMatcher, &MtdCallback);
+    Finder.addMatcher(ProtoMatcher, &ProtoCallback);
 
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }

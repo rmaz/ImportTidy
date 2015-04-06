@@ -57,12 +57,20 @@ namespace import_tidy {
     ImportMatcher &Matcher;
   };
 
+  class ProtocolCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
+  public:
+    ProtocolCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
+    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
+  private:
+    ImportMatcher &Matcher;
+  };
+
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
       ImportOffset(), ImportMap(), FrameworkImportMap(),
       CallCallback(*this), InterfaceCallback(*this),
-      MsgCallback(*this), MtdCallback(*this),
+      MsgCallback(*this), MtdCallback(*this), ProtoCallback(*this),
       FileCallbacks(*this), Replacements(Replacements) { };
 
     std::unique_ptr<clang::tooling::FrontendActionFactory>
@@ -86,6 +94,7 @@ namespace import_tidy {
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;
     MethodCallback MtdCallback;
+    ProtocolCallback ProtoCallback;
     FileCallbacks FileCallbacks;
     clang::tooling::Replacements &Replacements;
   };
