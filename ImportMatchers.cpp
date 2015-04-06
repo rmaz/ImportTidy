@@ -45,11 +45,15 @@ namespace ast_matchers {
 namespace {
 
   static bool isInFramework(StringRef Path) {
-    return Path.find(".framework/") != llvm::StringRef::npos;
+    return Path.rfind(".framework/") != llvm::StringRef::npos;
+  }
+
+  static bool isInSystemLibrary(StringRef Path) {
+    return Path.rfind("/usr/include/") != llvm::StringRef::npos;
   }
 
   static StringRef frameworkName(StringRef Path) {
-    auto End = Path.find(".framework/");
+    auto End = Path.rfind(".framework/");
     auto Start = Path.rfind('/', End) + 1;
     return Path.substr(Start, End - Start);
   }
@@ -66,8 +70,19 @@ namespace {
     std::string import;
     llvm::raw_string_ostream Import(import);
     
-    auto Start = Path.rfind("usr/include/") + strlen("usr/include/");
+    auto Start = Path.rfind("/usr/include/") + strlen("/usr/include/");
     auto Name = Path.substr(Start);
+    Import << "#import <" << Name << ">";
+    return Import.str();
+  }
+
+  static std::string importForUserLibrary(StringRef Path) {
+    std::string import;
+    llvm::raw_string_ostream Import(import);
+
+    auto LastPath = Path.rfind('/');
+    auto PreviousPath = Path.rfind('/', LastPath);
+    auto Name = Path.substr(PreviousPath + 1);
     Import << "#import <" << Name << ">";
     return Import.str();
   }
@@ -95,16 +110,14 @@ namespace {
                             StringRef SearchPath,
                             StringRef RelativePath,
                             const Module *Imported) override {
-      if (SM.isInMainFile(HashLoc)) {
-        Matcher.removeImport(HashLoc, SM);
-      } else if (SM.isInSystemHeader(HashLoc)) {
+      if (SM.isInSystemHeader(HashLoc)) {
         auto InFile = SM.getFilename(HashLoc);
-        if (isInFramework(InFile) && !isInFramework(File->getName())) {
+        if (isInFramework(InFile) && isInSystemLibrary(File->getName())) {
           Matcher.addLibraryInclude(frameworkName(InFile), File->getName());
         }
+      } else {
+        Matcher.removeImport(HashLoc, SM);
       }
-
-      // TODO: make this work for header files too
     }
   private:
     const SourceManager &SM;
@@ -247,7 +260,7 @@ namespace import_tidy {
     auto fid = SM.getFileID(Loc);
     auto *fileStart = SM.getBuffer(fid)->getBufferStart();
     unsigned start = SM.getFileOffset(Loc);
-    unsigned end = strchr(fileStart + start, '\n') - fileStart;
+    unsigned end = strchr(fileStart + start, '\n') - fileStart + 1;
 
     // TODO: this is a dangerous assumption, should be modelled as a set of ranges
     ImportOffset[fid] = std::max(ImportOffset[fid], end);
@@ -256,19 +269,23 @@ namespace import_tidy {
   void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
 
-    for (auto i = ImportMap.begin(); i != ImportMap.end(); i++) {
-      auto fid = i->first;
-      out << "File ID: " << fid.getHashValue() << "\n";
+    for (auto &I : ImportMap) {
       std::string import;
-      llvm::raw_string_ostream Import(import);
-
-      for (auto j = i->second.begin(); j != i->second.end(); j++) {
-        Import << *j << '\n';
+      llvm::raw_string_ostream ImportStr(import);
+      for (auto &Import : I.second) {
+        ImportStr << Import << '\n';
       }
-      auto start = SM.getLocForStartOfFile(fid);
-      Replacements.insert(Replacement(SM, start, ImportOffset[fid], Import.str()));
 
-      out << Import.str() << "\n";
+      auto fid = I.first;
+      auto start = SM.getLocForStartOfFile(fid);
+      auto replacementLength = ImportOffset[fid];
+      if (replacementLength == 0) {
+        // make sure there is at least a line of whitespace after the new imports
+        ImportStr << '\n';
+      }
+
+      Replacements.insert(Replacement(SM, start, replacementLength, ImportStr.str()));
+      out << "File ID: " << fid.getHashValue() << "\n" << ImportStr.str() << "\n";
     }
   }
 
@@ -283,13 +300,15 @@ namespace import_tidy {
       // otherwise just import the include verbatim
       if (isInFramework(Path)) {
         return importForFrameworkName(frameworkName(Path));
-      } else {
-        for (auto i = FrameworkImportMap.begin(); i != FrameworkImportMap.end(); i++) {
-          if (i->second.count(Path)) {
-            return importForFrameworkName(i->first);
+      } else if (isInSystemLibrary(Path)) {
+        for (auto I : FrameworkImportMap) {
+          if (I.second.count(Path)) {
+            return importForFrameworkName(I.first);
           }
         }
         return importForSystemLibrary(Path);
+      } else {
+        return importForUserLibrary(Path);
       }
     } else {
       // TODO: work out somehow if this import could go in the triangle brackets

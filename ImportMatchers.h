@@ -9,7 +9,7 @@
 #include "clang/Tooling/Refactoring.h"
 #include <string>
 #include <map>
-#include <unordered_set>
+#include <set>
 
 namespace import_tidy {
   class ImportMatcher;
@@ -88,8 +88,8 @@ namespace import_tidy {
                                   const clang::SourceManager&);
 
     std::map<clang::FileID, unsigned> ImportOffset;
-    std::map<clang::FileID, std::unordered_set<std::string>> ImportMap;
-    std::map<std::string, std::unordered_set<std::string>> FrameworkImportMap;
+    std::map<clang::FileID, std::set<std::string>> ImportMap;
+    std::map<std::string, std::set<std::string>> FrameworkImportMap;
     CallExprCallback CallCallback;
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;
