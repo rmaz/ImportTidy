@@ -68,7 +68,7 @@ namespace import_tidy {
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
-      ImportOffset(), ImportMap(), FrameworkImportMap(),
+      ImportOffset(), ImportMap(), LibraryImportMap(),
       CallCallback(*this), InterfaceCallback(*this),
       MsgCallback(*this), MtdCallback(*this), ProtoCallback(*this),
       FileCallbacks(*this), Replacements(Replacements) { };
@@ -89,7 +89,7 @@ namespace import_tidy {
 
     std::map<clang::FileID, unsigned> ImportOffset;
     std::map<clang::FileID, std::set<std::string>> ImportMap;
-    std::map<std::string, std::set<std::string>> FrameworkImportMap;
+    std::map<std::string, std::set<std::string>> LibraryImportMap;
     CallExprCallback CallCallback;
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;

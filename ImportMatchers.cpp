@@ -44,6 +44,22 @@ namespace ast_matchers {
 
 namespace {
 
+  static StringRef frameworkName(StringRef Path) {
+    auto End = Path.rfind(".framework/");
+    auto Start = Path.rfind('/', End) + 1;
+    return Path.substr(Start, End - Start);
+  }
+
+  static StringRef libraryName(StringRef Path) {
+    auto LastSplit = Path.rfind('/');
+    auto PrevSplit = Path.rfind('/', LastSplit);
+    if (PrevSplit == llvm::StringRef::npos) {
+      return "";
+    }
+
+    return Path.substr(PrevSplit + 1, LastSplit - PrevSplit - 1);
+  }
+
   static bool isInFramework(StringRef Path) {
     return Path.rfind(".framework/") != llvm::StringRef::npos;
   }
@@ -52,13 +68,13 @@ namespace {
     return Path.rfind("/usr/include/") != llvm::StringRef::npos;
   }
 
-  static StringRef frameworkName(StringRef Path) {
-    auto End = Path.rfind(".framework/");
-    auto Start = Path.rfind('/', End) + 1;
-    return Path.substr(Start, End - Start);
+  static bool isUmbrellaHeader(StringRef Path) {
+    auto LastSplit = Path.rfind('/');
+    auto FileName = Path.substr(LastSplit + 1);
+    return FileName.startswith(libraryName(Path));
   }
 
-  static std::string importForFrameworkName(StringRef Name) {
+  static std::string importForLibraryName(StringRef Name) {
     std::string import;
     llvm::raw_string_ostream Import(import);
 
@@ -114,6 +130,8 @@ namespace {
         auto InFile = SM.getFilename(HashLoc);
         if (isInFramework(InFile) && isInSystemLibrary(File->getName())) {
           Matcher.addLibraryInclude(frameworkName(InFile), File->getName());
+        } else if (!isInFramework(InFile) && !isInSystemLibrary(InFile) && isUmbrellaHeader(InFile)) {
+          Matcher.addLibraryInclude(libraryName(InFile), File->getName());
         }
       } else {
         Matcher.removeImport(HashLoc, SM);
@@ -236,8 +254,8 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addLibraryInclude(StringRef Framework, StringRef ForFile) {
-    FrameworkImportMap[Framework].insert(ForFile);
+  void ImportMatcher::addLibraryInclude(StringRef LibraryName, StringRef ForFile) {
+    LibraryImportMap[LibraryName].insert(ForFile);
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
@@ -296,24 +314,19 @@ namespace import_tidy {
     // TODO: handle modules
 
     if (SM.isInSystemHeader(Loc)) {
-      // if this is a framework, get the catchall header
-      // otherwise just import the include verbatim
       if (isInFramework(Path)) {
-        return importForFrameworkName(frameworkName(Path));
-      } else if (isInSystemLibrary(Path)) {
-        for (auto I : FrameworkImportMap) {
-          if (I.second.count(Path)) {
-            return importForFrameworkName(I.first);
-          }
-        }
-        return importForSystemLibrary(Path);
-      } else {
-        return importForUserLibrary(Path);
+        return importForLibraryName(frameworkName(Path));
       }
+      for (auto I : LibraryImportMap) {
+        if (I.second.count(Path)) {
+          return importForLibraryName(I.first);
+        }
+      }
+      return isInSystemLibrary(Path) ? importForSystemLibrary(Path) :
+                                       importForUserLibrary(Path);
     } else {
-      // TODO: work out somehow if this import could go in the triangle brackets
-      // probably if it has already been imported via an umbrella header or something
       return importForFile(Path);
     }
   }
+
 } // end namespace import_tidy
