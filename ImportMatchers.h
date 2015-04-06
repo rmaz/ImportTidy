@@ -53,7 +53,7 @@ namespace import_tidy {
     MethodCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
     void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
   private:
-    void addType(const clang::FileID, clang::QualType);
+    void addType(const clang::FileID, clang::QualType, const clang::SourceManager&);
     ImportMatcher &Matcher;
   };
 

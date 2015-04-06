@@ -112,6 +112,7 @@ namespace {
     return Import.str();
   }
 
+  // TODO: strip out forward declares too
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -215,18 +216,22 @@ namespace import_tidy {
   void MethodCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *M = Result.Nodes.getNodeAs<ObjCMethodDecl>(nodeKey)) {
       auto FID = Result.SourceManager->getFileID(M->getLocation());
-      addType(FID, M->getReturnType());
+      addType(FID, M->getReturnType(), *Result.SourceManager);
 
       for (auto i = M->param_begin(); i != M->param_end(); i++) {
-        addType(FID, (*i)->getType());
+        addType(FID, (*i)->getType(), *Result.SourceManager);
       }
     }
   }
 
-  void MethodCallback::addType(const FileID InFile, QualType T) {
+  void MethodCallback::addType(const FileID InFile, QualType T, const SourceManager &SM) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       if (auto *ID = PT->getInterfaceDecl()) {
-        Matcher.addForwardDeclare(InFile, ID->getName());
+        if (SM.isInSystemHeader(ID->getLocation())) {
+          Matcher.addImport(InFile, ID->getLocation(), SM);
+        } else {
+          Matcher.addForwardDeclare(InFile, ID->getName());
+        }
       }
     }
   }
