@@ -104,7 +104,7 @@ namespace {
     return Import.str();
   }
 
-  static FileID fileIncludingFile(std::map<FileID, std::set<FileID>> &Map, FileID F) {
+  static const clang::FileEntry* fileIncludingFile(std::map<const FileEntry*, std::set<const FileEntry*>> &Map, const FileEntry *F) {
     for (auto I : Map) {
       if (I.second.count(F)) {
         return I.first;
@@ -113,11 +113,20 @@ namespace {
     return F;
   }
 
-  static FileID topFileIncludingFile(std::map<FileID, std::set<FileID>> &Map, FileID F) {
-    FileID Top = F;
-    while ((Top = fileIncludingFile(Map, Top)) != Top);
+  static FileID topFileIncludingFile(std::map<const FileEntry*, std::set<const FileEntry*>> &Map, FileID File, const SourceManager &SM) {
+    auto *FE = SM.getFileEntryForID(File);
+    llvm::outs() << "Searching for top include for " << FE->getName() << "\n";
+    do {
+      auto *Parent = fileIncludingFile(Map, FE);
+      if (Parent != FE) {
+        FE = Parent;
+        llvm::outs() << "Included in " << FE->getName() << "\n";
+      } else {
+        break;
+      }
+    } while (true);
 
-    return Top;
+    return SM.translateFile(FE);
   }
 
   // TODO: strip out forward declares too
@@ -135,8 +144,11 @@ namespace {
                             StringRef SearchPath,
                             StringRef RelativePath,
                             const Module *Imported) override {
+      // TODO: use the imported module
+
       if (SM.isInSystemHeader(HashLoc)) {
-        Matcher.addLibraryInclude(SM.getFileID(HashLoc), SM.translateFile(File));
+        llvm::outs() << SM.getFilename(HashLoc) << " including " << FileName << " with ID " << SM.translateFile(File).getHashValue() << '\n';
+        Matcher.addLibraryInclude(SM.getFileEntryForID(SM.getFileID(HashLoc)), File);
       } else {
         Matcher.removeImport(HashLoc, SM);
       }
@@ -262,8 +274,8 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addLibraryInclude(FileID InHeader, FileID OfHeader) {
-    LibraryImportMap[InHeader].insert(OfHeader);
+  void ImportMatcher::addLibraryInclude(const FileEntry *HE, const FileEntry *FE) {
+    LibraryImportMap[HE].insert(FE);
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
@@ -275,6 +287,7 @@ namespace import_tidy {
   }
 
   void ImportMatcher::addImport(const FileID InFile, const SourceLocation ImportLoc, const SourceManager &SM) {
+    // TODO: this is silly, should just store the FileID and print in flush
     addImport(InFile, importForLocation(ImportLoc, SM));
   }
 
@@ -319,7 +332,7 @@ namespace import_tidy {
 
   std::string ImportMatcher::importForLocation(const SourceLocation Loc,
                                                const SourceManager &SM) {
-    auto FID = topFileIncludingFile(LibraryImportMap, SM.getFileID(Loc));
+    auto FID = topFileIncludingFile(LibraryImportMap, SM.getFileID(Loc), SM);
     auto L = SM.getLocForStartOfFile(FID);
     auto Path = SM.getFilename(L);
 
