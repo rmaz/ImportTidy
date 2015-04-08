@@ -44,67 +44,24 @@ namespace ast_matchers {
 
 namespace {
 
-  static StringRef frameworkName(StringRef Path) {
-    auto End = Path.rfind(".framework/");
-    auto Start = Path.rfind('/', End) + 1;
-    return Path.substr(Start, End - Start);
+  static Import importForFileLoc(const SourceLocation L, const SourceManager &SM) {
+    if (SM.isLoadedSourceLocation(L)) {
+      return Import(ImportType::Module, SM.getModuleImportLoc(L).second);
+    }
+
+    auto Path = SM.getFilename(L);
+    if (SM.isInSystemHeader(L)) {
+      return Import(ImportType::Library, Path);
+    }
+
+    auto Filename = Path.drop_front(Path.find_last_of('/') + 1);
+    return Import(ImportType::File, Filename);
   }
 
-  static bool isInFramework(StringRef Path) {
-    return Path.rfind(".framework/") != llvm::StringRef::npos;
-  }
-
-  static bool isInSystemLibrary(StringRef Path) {
-    return Path.rfind("/usr/include/") != llvm::StringRef::npos;
-  }
-
-  static std::string importForModuleName(StringRef Name) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-
-    Import << "@import " << Name << ";";
-    return Import.str();
-  }
-
-  static std::string importForLibraryName(StringRef Name) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-
-    Import << "#import <" << Name << '/' << Name << ".h>";
-    return Import.str();
-  }
-
-  static std::string importForSystemLibrary(StringRef Path) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-    
-    auto Start = Path.rfind("/usr/include/") + strlen("/usr/include/");
-    auto Name = Path.substr(Start);
-    Import << "#import <" << Name << ">";
-    return Import.str();
-  }
-
-  static std::string importForUserLibrary(StringRef Path) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-
-    auto LastPath = Path.rfind('/');
-    auto PreviousPath = Path.rfind('/', LastPath);
-    auto Name = Path.substr(PreviousPath + 1);
-    Import << "#import <" << Name << ">";
-    return Import.str();
-  }
-
-  static std::string importForFile(StringRef Path) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-
-    auto Name = Path.drop_front(Path.find_last_of('/') + 1);
-    Import << "#import " << '"' << Name << '"';
-    return Import.str();
-  }
-
-  static const clang::FileEntry* fileIncludingFile(std::map<const FileEntry*, std::set<const FileEntry*>> &Map, const FileEntry *F) {
+  static const clang::FileEntry*
+  fileIncludingFile(std::map<const FileEntry*,
+                    std::set<const FileEntry*>> &Map,
+                    const FileEntry *F) {
     for (auto I : Map) {
       if (I.second.count(F)) {
         return I.first;
@@ -113,18 +70,17 @@ namespace {
     return F;
   }
 
-  static FileID topFileIncludingFile(std::map<const FileEntry*, std::set<const FileEntry*>> &Map, FileID File, const SourceManager &SM) {
+  static FileID
+  topFileIncludingFile(std::map<const FileEntry*,
+                       std::set<const FileEntry*>> &Map,
+                       FileID File,
+                       const SourceManager &SM) {
     auto *FE = SM.getFileEntryForID(File);
-    llvm::outs() << "Searching for top include for " << FE->getName() << "\n";
+    const FileEntry *PE;
     do {
-      auto *Parent = fileIncludingFile(Map, FE);
-      if (Parent != FE) {
-        FE = Parent;
-        llvm::outs() << "Included in " << FE->getName() << "\n";
-      } else {
-        break;
-      }
-    } while (true);
+      PE = FE;
+      FE = fileIncludingFile(Map, PE);
+    } while (PE != FE);
 
     return SM.translateFile(FE);
   }
@@ -147,7 +103,6 @@ namespace {
       // TODO: use the imported module
 
       if (SM.isInSystemHeader(HashLoc)) {
-        llvm::outs() << SM.getFilename(HashLoc) << " including " << FileName << " with ID " << SM.translateFile(File).getHashValue() << '\n';
         Matcher.addLibraryInclude(SM.getFileEntryForID(SM.getFileID(HashLoc)), File);
       } else {
         Matcher.removeImport(HashLoc, SM);
@@ -242,6 +197,8 @@ namespace import_tidy {
   void MethodCallback::addType(const FileID InFile, QualType T, const SourceManager &SM) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       if (auto *ID = PT->getInterfaceDecl()) {
+        // TODO: forward declare if it is a system library too
+        // but check first if it is already imported
         if (SM.isInSystemHeader(ID->getLocation())) {
           Matcher.addImport(InFile, ID->getLocation(), SM);
         } else {
@@ -275,24 +232,24 @@ namespace import_tidy {
   }
 
   void ImportMatcher::addLibraryInclude(const FileEntry *HE, const FileEntry *FE) {
-    LibraryImportMap[HE].insert(FE);
+    // don't allow circular includes
+    // TODO: only map files belonging to the same library
+    if (LibraryImportMap[FE].count(HE) == 0) {
+      LibraryImportMap[HE].insert(FE);
+    }
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
-    std::string import;
-    llvm::raw_string_ostream Import(import);
-
-    Import << "@class " << Name << ";";
-    addImport(InFile, Import.str());
+    ImportMap[InFile].insert(Import(ImportType::ForwardDeclare, Name));
   }
 
-  void ImportMatcher::addImport(const FileID InFile, const SourceLocation ImportLoc, const SourceManager &SM) {
-    // TODO: this is silly, should just store the FileID and print in flush
-    addImport(InFile, importForLocation(ImportLoc, SM));
-  }
-
-  void ImportMatcher::addImport(const FileID InFile, std::string Import) {
-    ImportMap[InFile].insert(Import);
+  void ImportMatcher::addImport(const FileID InFile,
+                                const SourceLocation Loc,
+                                const SourceManager &SM) {
+    auto OfFile = SM.getFileID(Loc);
+    auto ImportedFile = topFileIncludingFile(LibraryImportMap, OfFile, SM);
+    auto ImportedLoc = SM.getLocForStartOfFile(ImportedFile);
+    ImportMap[InFile].insert(importForFileLoc(ImportedLoc, SM));
   }
 
   void ImportMatcher::removeImport(const SourceLocation Loc, const SourceManager &SM) {
@@ -308,14 +265,14 @@ namespace import_tidy {
   void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
 
-    for (auto &I : ImportMap) {
+    for (auto &Pair : ImportMap) {
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
-      for (auto &Import : I.second) {
+      for (auto &Import : Pair.second) {
         ImportStr << Import << '\n';
       }
 
-      auto fid = I.first;
+      auto fid = Pair.first;
       auto start = SM.getLocForStartOfFile(fid);
       auto replacementLength = ImportOffset[fid];
       if (replacementLength == 0) {
@@ -328,32 +285,6 @@ namespace import_tidy {
     }
     ImportMap.clear();
     ImportOffset.clear();
-  }
-
-  std::string ImportMatcher::importForLocation(const SourceLocation Loc,
-                                               const SourceManager &SM) {
-    auto FID = topFileIncludingFile(LibraryImportMap, SM.getFileID(Loc), SM);
-    auto L = SM.getLocForStartOfFile(FID);
-    auto Path = SM.getFilename(L);
-
-    if (SM.isLoadedSourceLocation(L)) {
-      return importForModuleName(SM.getModuleImportLoc(Loc).second);
-    }
-
-    if (!SM.isInSystemHeader(L)) {
-      return importForFile(Path);
-    }
-
-    if (isInFramework(Path)) {
-      // TODO: don't assume the catchall name matches
-      return importForLibraryName(frameworkName(Path));
-    }
-
-    if (isInSystemLibrary(Path)) {
-      return importForSystemLibrary(Path);
-    }
-
-    return importForUserLibrary(Path);
   }
 
 } // end namespace import_tidy

@@ -7,6 +7,7 @@
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Tooling/Tooling.h"
 #include "clang/Tooling/Refactoring.h"
+#include "Import.h"
 #include <string>
 #include <map>
 #include <set>
@@ -77,18 +78,14 @@ namespace import_tidy {
       getActionFactory(clang::ast_matchers::MatchFinder&);
     void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name);
     void addImport(const clang::FileID InFile,
-                   const clang::SourceLocation ImportLocation,
+                   const clang::SourceLocation OfFileLoc,
                    const clang::SourceManager&);
     void addLibraryInclude(const clang::FileEntry *InHeader, const clang::FileEntry*);
     void removeImport(const clang::SourceLocation, const clang::SourceManager&);
     void flush(const clang::SourceManager&);
   private:
-    void addImport(const clang::FileID, std::string);
-    std::string importForLocation(const clang::SourceLocation,
-                                  const clang::SourceManager&);
-
     std::map<clang::FileID, unsigned> ImportOffset;
-    std::map<clang::FileID, std::set<std::string>> ImportMap;
+    std::map<clang::FileID, std::set<Import>> ImportMap;
     std::map<const clang::FileEntry*, std::set<const clang::FileEntry *>> LibraryImportMap;
     CallExprCallback CallCallback;
     InterfaceCallback InterfaceCallback;
