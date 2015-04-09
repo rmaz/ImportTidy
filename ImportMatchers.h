@@ -76,6 +76,8 @@ namespace import_tidy {
 
     std::unique_ptr<clang::tooling::FrontendActionFactory>
       getActionFactory(clang::ast_matchers::MatchFinder&);
+    llvm::StringRef getSysroot() { return llvm::StringRef(Sysroot); }
+    void setSysroot(std::string SR) { Sysroot = SR; }
     void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name);
     void addImport(const clang::FileID InFile,
                    const clang::SourceLocation OfFileLoc,
@@ -94,6 +96,7 @@ namespace import_tidy {
     ProtocolCallback ProtoCallback;
     FileCallbacks FileCallbacks;
     clang::tooling::Replacements &Replacements;
+    std::string Sysroot;
   };
 };
 

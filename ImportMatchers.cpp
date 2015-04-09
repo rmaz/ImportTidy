@@ -123,6 +123,7 @@ namespace import_tidy {
     auto &PP = CI.getPreprocessor();
     PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, Matcher)));
     SourceMgr = &SM;
+    Matcher.setSysroot(CI.getHeaderSearchOpts().Sysroot);
 
     return true;
   }
@@ -197,9 +198,8 @@ namespace import_tidy {
   void MethodCallback::addType(const FileID InFile, QualType T, const SourceManager &SM) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       if (auto *ID = PT->getInterfaceDecl()) {
-        // TODO: forward declare if it is a system library too
-        // but check first if it is already imported
-        if (SM.isInSystemHeader(ID->getLocation())) {
+        auto Filename = SM.getFilename(ID->getLocation());
+        if (Filename.startswith(Matcher.getSysroot())) {
           Matcher.addImport(InFile, ID->getLocation(), SM);
         } else {
           Matcher.addForwardDeclare(InFile, ID->getName());
