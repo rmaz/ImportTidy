@@ -102,7 +102,7 @@ namespace {
                             const Module *Imported) override {
       // TODO: use the imported module
 
-      if (SM.isInSystemHeader(HashLoc)) {
+      if (File && SM.isInSystemHeader(HashLoc)) {
         Matcher.addLibraryInclude(SM.getFileEntryForID(SM.getFileID(HashLoc)), File);
       } else {
         Matcher.removeImport(HashLoc, SM);
@@ -232,11 +232,19 @@ namespace import_tidy {
   }
 
   void ImportMatcher::addLibraryInclude(const FileEntry *HE, const FileEntry *FE) {
-    // don't allow circular includes
-    // TODO: only map files belonging to the same library
-    if (LibraryImportMap[FE].count(HE) == 0) {
-      LibraryImportMap[HE].insert(FE);
-    }
+    // some framework headers import themselves
+    if (HE == FE)
+      return;
+
+    // don't allow circular imports
+    if (LibraryImportMap.count(FE) > 0)
+      return;
+
+    // don't track includes across libraries
+    if (HE->getDir() != FE->getDir())
+      return;
+
+    LibraryImportMap[HE].insert(FE);
   }
 
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
