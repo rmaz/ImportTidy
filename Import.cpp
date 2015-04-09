@@ -5,13 +5,14 @@ using namespace llvm;
 namespace import_tidy {
 
   static StringRef twoLevelPath(StringRef Path) {
-    auto Div = Path.find_last_of('/');
+    auto Div = Path.rfind('/');
     Div = Path.rfind('/', Div);
     return Path.drop_front(Div + 1);
   }
 
   static StringRef strippedLibraryPath(StringRef Path) {
-    return Path.drop_front(Path.find_last_of("/usr/include/") + strlen("/usr/include/"));
+    auto Start = Path.rfind("/usr/include/") + strlen("/usr/include/");
+    return Path.drop_front(Start);
   }
 
   static StringRef frameworkName(StringRef Path) {
@@ -21,7 +22,7 @@ namespace import_tidy {
   }
 
   static StringRef filename(StringRef Path) {
-    return Path.drop_front(Path.find_last_of('/') + 1);
+    return Path.drop_front(Path.rfind('/') + 1);
   }
 
   static bool isFramework(StringRef Path) {

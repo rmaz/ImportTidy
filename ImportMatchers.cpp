@@ -85,7 +85,7 @@ namespace {
     return SM.translateFile(FE);
   }
 
-  // TODO: strip out forward declares too
+  // TODO: strip out forward declares and @imports too
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -100,8 +100,6 @@ namespace {
                             StringRef SearchPath,
                             StringRef RelativePath,
                             const Module *Imported) override {
-      // TODO: use the imported module
-
       if (File && SM.isInSystemHeader(HashLoc)) {
         Matcher.addLibraryInclude(SM.getFileEntryForID(SM.getFileID(HashLoc)), File);
       } else {
@@ -119,6 +117,7 @@ namespace import_tidy {
   static const StringRef nodeKey = "key";
 
   bool FileCallbacks::handleBeginSource(CompilerInstance &CI, StringRef Filename) {
+    llvm::outs() << "File " << Filename << "\n";
     auto &SM = CI.getSourceManager();
     auto &PP = CI.getPreprocessor();
     PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, Matcher)));
