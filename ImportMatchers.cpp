@@ -186,7 +186,6 @@ namespace import_tidy {
       if (auto *ID = E->getReceiverInterface()) {
         Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
-        assert(Ptr->isObjCQualifiedIdType());
         for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
           Matcher.addImport(SM.getMainFileID(), (*i)->getLocation(), SM);
         }
