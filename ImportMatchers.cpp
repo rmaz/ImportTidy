@@ -17,6 +17,7 @@ namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interface;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> method;
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocol;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> import;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
     if (auto *ImpDecl = Node.getImplementation()) {
@@ -28,12 +29,16 @@ namespace ast_matchers {
   }
 
   AST_MATCHER(ObjCInterfaceDecl, isForwardDeclare) {
-    auto &SM = Finder->getASTContext().getSourceManager();
+    return !Node.hasDefinition();
+  }
+
+  AST_MATCHER(Decl, isNotInSystemHeader) {
     auto Loc = Node.getLocation();
     if (!Loc.isValid())
       return false;
 
-    return !SM.isInSystemHeader(Loc) && !Node.hasDefinition();
+    auto &SM = Finder->getASTContext().getSourceManager();
+    return !SM.isInSystemHeader(Loc);
   }
 
   AST_MATCHER(ObjCMethodDecl, isDefinedInHeader) {
@@ -48,6 +53,7 @@ namespace ast_matchers {
     auto ImpLoc = SM.getExpansionLoc(ID->getImplementation()->getLocStart());
     return SM.isInMainFile(ImpLoc);
   }
+
 } // end namespace ast_matchers
 } // end namespace clang
 
@@ -123,7 +129,6 @@ namespace {
 
 namespace import_tidy {
   static const StringRef nodeKey = "key";
-  static const StringRef declareKey = "forwardDeclare";
 
   bool FileCallbacks::handleBeginSource(CompilerInstance &CI, StringRef Filename) {
     llvm::outs() << "File " << Filename << "\n";
@@ -148,9 +153,8 @@ namespace import_tidy {
   }
 
   void InterfaceCallback::run(const MatchFinder::MatchResult &Result) {
-    auto &SM = *Result.SourceManager;
-
     if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(nodeKey)) {
+      auto &SM = *Result.SourceManager;
       auto InFile = SM.getFileID(ID->getLocation());
 
       if (auto *SC = ID->getSuperClass()) {
@@ -172,8 +176,6 @@ namespace import_tidy {
           Matcher.addImport(CategoryFile, P->getLocation(), SM);
         }
       }
-    } else if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(declareKey)) {
-      Matcher.removeImport(ID->getLocation(), SM);
     }
   }
 
@@ -226,17 +228,25 @@ namespace import_tidy {
     }
   }
 
+  void StripCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *D = Result.Nodes.getNodeAs<Decl>(nodeKey)) {
+      Matcher.removeImport(D->getLocation(), *Result.SourceManager);
+    }
+  }
+
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
-    auto ForwardDeclareMatcher = interface(isForwardDeclare()).bind(declareKey);
+    auto ForwardDeclareMatcher = interface(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
+    auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
     auto ProtoMatcher = protocol(isExpansionInMainFile()).bind(nodeKey);
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
-    Finder.addMatcher(ForwardDeclareMatcher, &InterfaceCallback);
+    Finder.addMatcher(ForwardDeclareMatcher, &StripCallback);
+    Finder.addMatcher(ImportMatcher, &StripCallback);
     Finder.addMatcher(MsgMatcher, &MsgCallback);
     Finder.addMatcher(MtdMatcher, &MtdCallback);
     Finder.addMatcher(ProtoMatcher, &ProtoCallback);
