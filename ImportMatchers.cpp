@@ -101,6 +101,29 @@ namespace {
     return F.isInvalid() ? File : F;
   }
 
+  static SourceLocation
+  findCategoryImportForMethod(const ObjCInterfaceDecl *ID, const ObjCMethodDecl *MD) {
+    SourceLocation InvalidLoc;
+    if (ID->lookupPrivateMethod(MD->getSelector(), MD->isInstanceMethod())) {
+      return InvalidLoc;
+    }
+
+    auto *Interface = ID;
+    do {
+      for (auto *Cat : Interface->visible_categories()) {
+        for (auto *Ctx : Cat->noload_decls()) {
+          if (auto *CatMD = dyn_cast<ObjCMethodDecl>(Ctx)) {
+            if (CatMD->getSelector() == MD->getSelector()) {
+              return CatMD->getLocStart();
+            }
+          }
+        }
+      }
+    } while ((Interface = Interface->getSuperClass()));
+
+    return InvalidLoc;
+  }
+
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -132,7 +155,7 @@ namespace import_tidy {
   static const StringRef nodeKey = "key";
 
   bool FileCallbacks::handleBeginSource(CompilerInstance &CI, StringRef Filename) {
-    llvm::outs() << "File " << Filename << "\n";
+    llvm::outs() << "Compiling " << Filename << "\n";
     auto &SM = CI.getSourceManager();
     auto &PP = CI.getPreprocessor();
     PP.addPPCallbacks(std::unique_ptr<ImportCallbacks>(new ImportCallbacks(SM, Matcher)));
@@ -168,6 +191,16 @@ namespace import_tidy {
 
       for (auto *P : ID->protocols()) {
         Matcher.addImport(InFile, P->getLocation(), SM);
+
+        for (auto *M : P->methods()) {
+          if (M->getImplementationControl() != ObjCMethodDecl::Required)
+            continue;
+
+          auto Loc = findCategoryImportForMethod(ID, M);
+          if (Loc.isValid()) {
+            Matcher.addImport(InFile, Loc, SM);
+          }
+        }
       }
 
       for (auto *C : ID->visible_categories()) {
@@ -319,7 +352,8 @@ namespace import_tidy {
       }
 
       Replacements.insert(Replacement(SM, start, replacementLength, ImportStr.str()));
-      out << "File ID: " << fid.getHashValue() << "\n" << ImportStr.str() << "\n";
+      out << "File: " << SM.getFilename(start) << "\n";
+      out << ImportStr.str() << "\n";
     }
     ImportMap.clear();
     ImportOffset.clear();
