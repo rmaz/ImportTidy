@@ -345,6 +345,16 @@ namespace import_tidy {
 
       auto fid = Pair.first;
       auto start = SM.getLocForStartOfFile(fid);
+      auto Path = SM.getFilename(start);
+      auto Found = std::find_if(Replacements.begin(), Replacements.end(),
+                                [Path](const Replacement &R) {
+                                  return R.getFilePath() == Path;
+                                });
+      if (Found != Replacements.end()) {
+        out << "Skipping, already cleaned: " << Path << "\n\n";
+        continue;
+      }
+
       auto replacementLength = ImportOffset[fid];
       if (replacementLength == 0) {
         // make sure there is at least a line of whitespace after the new imports
