@@ -31,8 +31,8 @@ namespace import_tidy {
     llvm::StringRef getName() const { return Name; }
 
   private:
-    const ImportType Type;
-    const llvm::StringRef Name;
+    ImportType Type;
+    llvm::StringRef Name;
   };
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import &);

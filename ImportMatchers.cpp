@@ -97,7 +97,8 @@ namespace {
       FE = fileIncludingFile(Map, PE);
     } while (PE != FE);
 
-    return SM.translateFile(FE);
+    auto F = SM.translateFile(FE);
+    return F.isInvalid() ? File : F;
   }
 
   class ImportCallbacks : public clang::PPCallbacks {
@@ -279,7 +280,14 @@ namespace import_tidy {
     auto OfFile = SM.getFileID(Loc);
     auto ImportedFile = topFileIncludingFile(LibraryImportMap, OfFile, SM);
     auto ImportedLoc = SM.getLocForStartOfFile(ImportedFile);
-    ImportMap[InFile].insert(importForFileLoc(ImportedLoc, SM));
+
+    Import Imp = importForFileLoc(ImportedLoc, SM);
+    if (ImportMap[InFile].count(Imp) == 0) {
+      ImportMap[InFile].insert(Imp);
+      if (Imp.getType() == ImportType::Library) {
+        LibraryImportCount[Imp]++;
+      }
+    }
   }
 
   void ImportMatcher::removeImport(const SourceLocation Loc, const SourceManager &SM) {
@@ -315,6 +323,18 @@ namespace import_tidy {
     }
     ImportMap.clear();
     ImportOffset.clear();
+  }
+
+  void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
+    using ImpPair = std::pair<Import, unsigned>;
+    std::vector<ImpPair> counts(LibraryImportCount.begin(), LibraryImportCount.end());
+    std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
+      return L.second < R.second;
+    });
+
+    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
+      OS << I->first << " : " << I->second << " times\n";
+    }
   }
 
 } // end namespace import_tidy
