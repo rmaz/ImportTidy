@@ -20,6 +20,9 @@ namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> import;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
+    if (!Node.isThisDeclarationADefinition())
+      return false;
+
     if (auto *ImpDecl = Node.getImplementation()) {
       auto &SourceManager = Finder->getASTContext().getSourceManager();
       return SourceManager.isInMainFile(SourceManager.getExpansionLoc(ImpDecl->getLocStart()));
@@ -124,6 +127,14 @@ namespace {
     return InvalidLoc;
   }
 
+  static bool haveReplacementForFile(Replacements &Replacements, StringRef Path) {
+    auto Found = std::find_if(Replacements.begin(), Replacements.end(),
+                              [Path](const Replacement &R) {
+                                return R.getFilePath() == Path;
+                              });
+    return Found != Replacements.end();
+  }
+
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -196,6 +207,7 @@ namespace import_tidy {
           if (M->getImplementationControl() != ObjCMethodDecl::Required)
             continue;
 
+          // TODO: this does not cover all cases, all categories should be imported
           auto Loc = findCategoryImportForMethod(ID, M);
           if (Loc.isValid()) {
             Matcher.addImport(InFile, Loc, SM);
@@ -231,6 +243,7 @@ namespace import_tidy {
   }
 
   void MethodCallback::run(const MatchFinder::MatchResult &Result) {
+    // TODO: import non object types eg enums
     if (auto *M = Result.Nodes.getNodeAs<ObjCMethodDecl>(nodeKey)) {
       auto FID = Result.SourceManager->getFileID(M->getLocation());
       addType(FID, M->getReturnType(), *Result.SourceManager);
@@ -346,14 +359,7 @@ namespace import_tidy {
       auto fid = Pair.first;
       auto start = SM.getLocForStartOfFile(fid);
       auto Path = SM.getFilename(start);
-      auto Found = std::find_if(Replacements.begin(), Replacements.end(),
-                                [Path](const Replacement &R) {
-                                  return R.getFilePath() == Path;
-                                });
-      if (Found != Replacements.end()) {
-        out << "Skipping, already cleaned: " << Path << "\n\n";
-        continue;
-      }
+      assert(!haveReplacementForFile(Replacements, Path));
 
       auto replacementLength = ImportOffset[fid];
       if (replacementLength == 0) {
