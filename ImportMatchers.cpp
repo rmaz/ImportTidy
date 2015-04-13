@@ -97,29 +97,6 @@ namespace {
     return TopFile;
   }
 
-  static SourceLocation
-  findCategoryImportForMethod(const ObjCInterfaceDecl *ID, const ObjCMethodDecl *MD) {
-    SourceLocation InvalidLoc;
-    if (ID->lookupPrivateMethod(MD->getSelector(), MD->isInstanceMethod())) {
-      return InvalidLoc;
-    }
-
-    auto *Interface = ID;
-    do {
-      for (auto *Cat : Interface->visible_categories()) {
-        for (auto *Ctx : Cat->noload_decls()) {
-          if (auto *CatMD = dyn_cast<ObjCMethodDecl>(Ctx)) {
-            if (CatMD->getSelector() == MD->getSelector()) {
-              return CatMD->getLocStart();
-            }
-          }
-        }
-      }
-    } while ((Interface = Interface->getSuperClass()));
-
-    return InvalidLoc;
-  }
-
   static bool haveReplacementForFile(Replacements &Replacements, StringRef Path) {
     auto Found = std::find_if(Replacements.begin(), Replacements.end(),
                               [Path](const Replacement &R) {
@@ -183,29 +160,23 @@ namespace import_tidy {
       auto &SM = *Result.SourceManager;
       auto InFile = SM.getFileID(ID->getLocation());
 
+      // import superclasses
       if (auto *SC = ID->getSuperClass()) {
         Matcher.addImport(InFile, SC->getLocation(), SM);
       }
 
+      // import this file, it is a header
       if (InFile != SM.getMainFileID()) {
         Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
       }
 
+      // import all protocol definitions
       for (auto *P : ID->protocols()) {
         Matcher.addImport(InFile, P->getLocation(), SM);
-
-        for (auto *M : P->methods()) {
-          if (M->getImplementationControl() != ObjCMethodDecl::Required)
-            continue;
-
-          // TODO: this does not cover all cases, all categories should be imported
-          auto Loc = findCategoryImportForMethod(ID, M);
-          if (Loc.isValid()) {
-            Matcher.addImport(InFile, Loc, SM);
-          }
-        }
       }
 
+      // import all protocol definitions of categories, most likely
+      // class extensions in the implementation
       for (auto *C : ID->visible_categories()) {
         auto CategoryFile = SM.getFileID(C->getLocation());
 
@@ -213,6 +184,21 @@ namespace import_tidy {
           Matcher.addImport(CategoryFile, P->getLocation(), SM);
         }
       }
+
+      // import any categories extending this class or its superclasses
+      // that were included from this file
+      auto *D = ID;
+      do {
+        for (auto *Cat : D->visible_categories()) {
+          for (auto *Ctx : Cat->noload_decls()) {
+            auto Loc = Ctx->getLocStart();
+            auto IncludedIn = SM.getFileID(SM.getIncludeLoc(SM.getFileID(Loc)));
+            if (IncludedIn == InFile) {
+              Matcher.addImport(InFile, Loc, SM);
+            }
+          }
+        }
+      } while ((D = D->getSuperClass()));
     }
   }
 
