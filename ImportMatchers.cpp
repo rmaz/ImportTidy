@@ -234,7 +234,6 @@ namespace import_tidy {
   }
 
   void MethodCallback::run(const MatchFinder::MatchResult &Result) {
-    // TODO: import non object types eg enums
     if (auto *M = Result.Nodes.getNodeAs<ObjCMethodDecl>(nodeKey)) {
       auto FID = Result.SourceManager->getFileID(M->getLocation());
       addType(FID, M->getReturnType(), *Result.SourceManager);
@@ -253,6 +252,13 @@ namespace import_tidy {
           Matcher.addImport(InFile, ID->getLocation(), SM);
         } else {
           Matcher.addForwardDeclare(InFile, ID->getName());
+        }
+      }
+    } else if (auto *TD = T->getAs<TypedefType>()) {
+      if (auto *TypeDecl = TD->getDecl()) {
+        auto Loc = TypeDecl->getLocStart();
+        if (!SM.isInSystemHeader(Loc)) {
+          Matcher.addImport(InFile, Loc, SM);
         }
       }
     }
