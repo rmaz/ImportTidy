@@ -349,6 +349,10 @@ namespace import_tidy {
       return L.second < R.second;
     });
 
+    OS << "\n\n";
+    OS << "--------------------------------" << "\n";
+    OS << "Libraries sorted by import count" << "\n";
+    OS << "--------------------------------" << "\n";
     for (auto I = counts.rbegin(); I != counts.rend(); I++) {
       OS << I->first << " : " << I->second << " times\n";
     }
