@@ -76,32 +76,25 @@ namespace {
     return Import(ImportType::File, Filename);
   }
 
-  static const clang::FileEntry*
-  fileIncludingFile(std::map<const FileEntry*,
-                    std::set<const FileEntry*>> &Map,
-                    const FileEntry *F) {
-    for (auto I : Map) {
-      if (I.second.count(F)) {
-        return I.first;
-      }
-    }
-    return F;
-  }
-
   static FileID
-  topFileIncludingFile(std::map<const FileEntry*,
-                       std::set<const FileEntry*>> &Map,
-                       FileID File,
-                       const SourceManager &SM) {
-    auto *FE = SM.getFileEntryForID(File);
-    const FileEntry *PE;
-    do {
-      PE = FE;
-      FE = fileIncludingFile(Map, PE);
-    } while (PE != FE);
+  topFileIncludingFile(FileID File, const SourceManager &SM) {
+    if (!SM.isInSystemHeader(SM.getLocForStartOfFile(File)))
+      return File;
 
-    auto F = SM.translateFile(FE);
-    return F.isInvalid() ? File : F;
+    auto TopFile = File;
+    auto *Dir = SM.getFileEntryForID(File)->getDir();
+    while (SM.getIncludeLoc(TopFile).isValid()) {
+      auto NextFile = SM.getFileID(SM.getIncludeLoc(TopFile));
+      if (!SM.getFilename(SM.getLocForStartOfFile(NextFile)).endswith(".h"))
+        break;
+
+      auto *NextDir = SM.getFileEntryForID(NextFile)->getDir();
+      if (NextDir != Dir)
+        break;
+
+      TopFile = NextFile;
+    }
+    return TopFile;
   }
 
   static SourceLocation
@@ -149,9 +142,7 @@ namespace {
                             StringRef SearchPath,
                             StringRef RelativePath,
                             const Module *Imported) override {
-      if (File && SM.isInSystemHeader(HashLoc)) {
-        Matcher.addLibraryInclude(SM.getFileEntryForID(SM.getFileID(HashLoc)), File);
-      } else {
+      if (!SM.isInSystemHeader(HashLoc)) {
         Matcher.removeImport(HashLoc, SM);
       }
     }
@@ -300,22 +291,6 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addLibraryInclude(const FileEntry *HE, const FileEntry *FE) {
-    // some framework headers import themselves
-    if (HE == FE)
-      return;
-
-    // don't allow circular imports
-    if (LibraryImportMap.count(FE) > 0)
-      return;
-
-    // don't track includes across libraries
-    if (HE->getDir() != FE->getDir())
-      return;
-
-    LibraryImportMap[HE].insert(FE);
-  }
-
   void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
     ImportMap[InFile].insert(Import(ImportType::ForwardDeclare, Name));
   }
@@ -324,7 +299,7 @@ namespace import_tidy {
                                 const SourceLocation Loc,
                                 const SourceManager &SM) {
     auto OfFile = SM.getFileID(Loc);
-    auto ImportedFile = topFileIncludingFile(LibraryImportMap, OfFile, SM);
+    auto ImportedFile = topFileIncludingFile(OfFile, SM);
     auto ImportedLoc = SM.getLocForStartOfFile(ImportedFile);
 
     Import Imp = importForFileLoc(ImportedLoc, SM);
