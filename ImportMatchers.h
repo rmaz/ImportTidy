@@ -86,7 +86,7 @@ namespace import_tidy {
       getActionFactory(clang::ast_matchers::MatchFinder&);
     llvm::StringRef getSysroot() { return llvm::StringRef(Sysroot); }
     void setSysroot(std::string SR) { Sysroot = SR; }
-    void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name);
+    void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name, bool isClass);
     void addImport(const clang::FileID InFile,
                    const clang::SourceLocation OfFileLoc,
                    const clang::SourceManager&);

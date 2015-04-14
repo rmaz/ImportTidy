@@ -232,20 +232,28 @@ namespace import_tidy {
 
   void MethodCallback::addType(const FileID InFile, QualType T, const SourceManager &SM) {
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
+      // import or forward declare the class type
       if (auto *ID = PT->getInterfaceDecl()) {
         auto Filename = SM.getFilename(ID->getLocation());
         if (Filename.startswith(Matcher.getSysroot())) {
           Matcher.addImport(InFile, ID->getLocation(), SM);
         } else {
-          Matcher.addForwardDeclare(InFile, ID->getName());
+          Matcher.addForwardDeclare(InFile, ID->getName(), true);
+        }
+      }
+
+      // import or forward declare any protocols being conformed to
+      for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
+        if (SM.getFilename((*i)->getLocStart()).startswith(Matcher.getSysroot())) {
+          Matcher.addImport(InFile, (*i)->getLocStart(), SM);
+        } else {
+          Matcher.addForwardDeclare(InFile, (*i)->getName(), false);
         }
       }
     } else if (auto *TD = T->getAs<TypedefType>()) {
+      // any typedefs need to be imported
       if (auto *TypeDecl = TD->getDecl()) {
-        auto Loc = TypeDecl->getLocStart();
-        if (!SM.isInSystemHeader(Loc)) {
-          Matcher.addImport(InFile, Loc, SM);
-        }
+        Matcher.addImport(InFile, TypeDecl->getLocStart(), SM);
       }
     }
   }
@@ -283,8 +291,10 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name) {
-    ImportMap[InFile].insert(Import(ImportType::ForwardDeclare, Name));
+  void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name, bool isClass) {
+    auto Type = isClass ? ImportType::ForwardDeclareClass :
+                          ImportType::ForwardDeclareProtocol;
+    ImportMap[InFile].insert(Import(Type, Name));
   }
 
   void ImportMatcher::addImport(const FileID InFile,
@@ -326,7 +336,8 @@ namespace import_tidy {
       auto fid = Pair.first;
       auto start = SM.getLocForStartOfFile(fid);
       auto Path = SM.getFilename(start);
-      assert(!haveReplacementForFile(Replacements, Path));
+      if (haveReplacementForFile(Replacements, Path))
+        continue;
 
       auto replacementLength = ImportOffset[fid];
       if (replacementLength == 0) {

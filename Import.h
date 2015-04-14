@@ -10,7 +10,8 @@ namespace import_tidy {
     Module,
     Library,
     File,
-    ForwardDeclare
+    ForwardDeclareClass,
+    ForwardDeclareProtocol
   };
 
   class Import {

@@ -59,8 +59,12 @@ namespace import_tidy {
         OS << "#import \"" << Import.getName() << "\"";
         break;
 
-      case ImportType::ForwardDeclare:
+      case ImportType::ForwardDeclareClass:
         OS << "@class " << Import.getName() << ";";
+        break;
+
+      case ImportType::ForwardDeclareProtocol:
+        OS << "@protocol " << Import.getName() << ";";
         break;
     }
     return OS;
