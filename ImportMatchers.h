@@ -77,7 +77,7 @@ namespace import_tidy {
   class ImportMatcher {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
-      ImportOffset(), ImportMap(), LibraryImportCount(),
+      ImportOffset(), ImportMap(), 
       CallCallback(*this), InterfaceCallback(*this),
       MsgCallback(*this), MtdCallback(*this), ProtoCallback(*this),
       StripCallback(*this), FileCallbacks(*this), Replacements(Replacements) {};
@@ -86,17 +86,16 @@ namespace import_tidy {
       getActionFactory(clang::ast_matchers::MatchFinder&);
     llvm::StringRef getSysroot() { return llvm::StringRef(Sysroot); }
     void setSysroot(std::string SR) { Sysroot = SR; }
-    void addForwardDeclare(const clang::FileID InFile, llvm::StringRef Name, bool isClass);
     void addImport(const clang::FileID InFile,
-                   const clang::SourceLocation OfFileLoc,
-                   const clang::SourceManager&);
+                   const clang::Decl*,
+                   const clang::SourceManager&,
+                   bool isForwardDeclare = false);
     void removeImport(const clang::SourceLocation, const clang::SourceManager&);
     void flush(const clang::SourceManager&);
     void printLibraryCounts(llvm::raw_ostream&);
   private:
     std::map<clang::FileID, unsigned> ImportOffset;
-    std::map<clang::FileID, std::set<Import>> ImportMap;
-    std::map<Import, unsigned> LibraryImportCount;
+    std::map<clang::FileID, std::vector<Import>> ImportMap;
     CallExprCallback CallCallback;
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;

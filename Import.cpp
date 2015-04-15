@@ -1,8 +1,57 @@
 #include "Import.h"
+#include "clang/AST/DeclObjC.h"
 
 using namespace llvm;
+using namespace clang;
 
 namespace import_tidy {
+
+  static FileID
+  topFileIncludingFile(FileID File, const SourceManager &SM) {
+    if (!SM.isInSystemHeader(SM.getLocForStartOfFile(File)))
+      return File;
+
+    auto TopFile = File;
+    auto *Dir = SM.getFileEntryForID(File)->getDir();
+    while (SM.getIncludeLoc(TopFile).isValid()) {
+      auto NextFile = SM.getFileID(SM.getIncludeLoc(TopFile));
+      if (!SM.getFilename(SM.getLocForStartOfFile(NextFile)).endswith(".h"))
+        break;
+
+      auto *NextDir = SM.getFileEntryForID(NextFile)->getDir();
+      if (NextDir != Dir)
+        break;
+
+      TopFile = NextFile;
+    }
+    return TopFile;
+  }
+
+  static ImportType
+  forwardType(const Decl *D, const SourceManager &SM) {
+    if (isa<ObjCProtocolDecl>(D)) {
+      return ImportType::ForwardDeclareProtocol;
+    } else {
+      assert(isa<ObjCInterfaceDecl>(D));
+      return ImportType::ForwardDeclareClass;
+    }
+  }
+
+  static ImportType calculateType(FileID File, const SourceManager &SM) {
+    if (SM.isLoadedFileID(File))
+      return ImportType::Module;
+    else if (SM.isInSystemHeader(SM.getLocForStartOfFile(File)))
+      return ImportType::Library;
+    else
+      return ImportType::File;
+  }
+
+  Import::Import(const SourceManager &SM,
+                 const Decl *D,
+                 bool isForwardDeclare) :
+    SM(SM), ImportedDecl(D),
+    File(topFileIncludingFile(SM.getFileID(D->getLocStart()), SM)),
+    Type(isForwardDeclare ? forwardType(D, SM) : calculateType(File, SM)) {}
 
   static StringRef twoLevelPath(StringRef Path) {
     auto Div = Path.rfind('/');
@@ -33,14 +82,20 @@ namespace import_tidy {
     return Path.rfind("/usr/include/") != StringRef::npos;
   }
 
+  static StringRef moduleName(const FileID File, const SourceManager &SM) {
+    return SM.getModuleImportLoc(SM.getLocForStartOfFile(File)).second;
+  }
+
   llvm::raw_ostream& operator<<(llvm::raw_ostream &OS, const Import &Import) {
-    switch (Import.getType()) {
+    auto Loc = Import.SM.getLocForStartOfFile(Import.File);
+    auto Path = Import.SM.getFilename(Loc);
+
+    switch (Import.Type) {
       case ImportType::Module:
-        OS << "@import " << Import.getName() << ";";
+        OS << "@import " << moduleName(Import.File, Import.SM) << ";";
         break;
 
       case ImportType::Library: {
-        auto Path = Import.getName();
         OS << "#import <";
 
         if (isFramework(Path)) {
@@ -56,16 +111,20 @@ namespace import_tidy {
       }
 
       case ImportType::File:
-        OS << "#import \"" << Import.getName() << "\"";
+        OS << "#import \"" << filename(Path) << "\"";
         break;
 
-      case ImportType::ForwardDeclareClass:
-        OS << "@class " << Import.getName() << ";";
+      case ImportType::ForwardDeclareClass: {
+        auto *ID = dyn_cast<ObjCInterfaceDecl>(Import.ImportedDecl);
+        OS << "@class " << ID->getName() << ";";
         break;
+      }
 
-      case ImportType::ForwardDeclareProtocol:
-        OS << "@protocol " << Import.getName() << ";";
+      case ImportType::ForwardDeclareProtocol: {
+        auto *PD = dyn_cast<ObjCProtocolDecl>(Import.ImportedDecl);
+        OS << "@protocol " << PD->getName() << ";";
         break;
+      }
     }
     return OS;
   }

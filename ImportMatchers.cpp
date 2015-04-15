@@ -62,41 +62,6 @@ namespace ast_matchers {
 
 namespace {
 
-  static Import importForFileLoc(const SourceLocation L, const SourceManager &SM) {
-    if (SM.isLoadedSourceLocation(L)) {
-      return Import(ImportType::Module, SM.getModuleImportLoc(L).second);
-    }
-
-    auto Path = SM.getFilename(L);
-    if (SM.isInSystemHeader(L)) {
-      return Import(ImportType::Library, Path);
-    }
-
-    auto Filename = Path.drop_front(Path.find_last_of('/') + 1);
-    return Import(ImportType::File, Filename);
-  }
-
-  static FileID
-  topFileIncludingFile(FileID File, const SourceManager &SM) {
-    if (!SM.isInSystemHeader(SM.getLocForStartOfFile(File)))
-      return File;
-
-    auto TopFile = File;
-    auto *Dir = SM.getFileEntryForID(File)->getDir();
-    while (SM.getIncludeLoc(TopFile).isValid()) {
-      auto NextFile = SM.getFileID(SM.getIncludeLoc(TopFile));
-      if (!SM.getFilename(SM.getLocForStartOfFile(NextFile)).endswith(".h"))
-        break;
-
-      auto *NextDir = SM.getFileEntryForID(NextFile)->getDir();
-      if (NextDir != Dir)
-        break;
-
-      TopFile = NextFile;
-    }
-    return TopFile;
-  }
-
   static bool haveReplacementForFile(Replacements &Replacements, StringRef Path) {
     auto Found = std::find_if(Replacements.begin(), Replacements.end(),
                               [Path](const Replacement &R) {
@@ -151,7 +116,9 @@ namespace import_tidy {
   void CallExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *FD = Result.Nodes.getNodeAs<CallExpr>(nodeKey)->getDirectCallee()) {
       auto &SM = *Result.SourceManager;
-      Matcher.addImport(SM.getMainFileID(), FD->getLocation(), SM);
+      if (SM.isInMainFile(FD->getLocStart())) {
+        Matcher.addImport(SM.getMainFileID(), FD, SM);
+      }
     }
   }
 
@@ -162,26 +129,26 @@ namespace import_tidy {
 
       // import superclasses
       if (auto *SC = ID->getSuperClass()) {
-        Matcher.addImport(InFile, SC->getLocation(), SM);
+        Matcher.addImport(InFile, SC, SM);
       }
 
       // import this file, it is a header
       if (InFile != SM.getMainFileID()) {
-        Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
+        Matcher.addImport(SM.getMainFileID(), ID, SM);
       }
 
       // import all protocol definitions
       for (auto *P : ID->protocols()) {
-        Matcher.addImport(InFile, P->getLocation(), SM);
+        Matcher.addImport(InFile, P, SM);
       }
 
       // import all protocol definitions of categories, most likely
       // class extensions in the implementation
-      for (auto *C : ID->visible_categories()) {
-        auto CategoryFile = SM.getFileID(C->getLocation());
+      for (auto *Category : ID->visible_categories()) {
+        auto CategoryFile = SM.getFileID(Category->getLocation());
 
-        for (auto *P : C->protocols()) {
-          Matcher.addImport(CategoryFile, P->getLocation(), SM);
+        for (auto *Protocol : Category->protocols()) {
+          Matcher.addImport(CategoryFile, Protocol, SM);
         }
       }
 
@@ -194,7 +161,7 @@ namespace import_tidy {
             auto Loc = Ctx->getLocStart();
             auto IncludedIn = SM.getFileID(SM.getIncludeLoc(SM.getFileID(Loc)));
             if (IncludedIn == InFile) {
-              Matcher.addImport(InFile, Loc, SM);
+              Matcher.addImport(InFile, Ctx, SM);
             }
           }
         }
@@ -207,14 +174,11 @@ namespace import_tidy {
       auto &SM = *Result.SourceManager;
 
       if (auto *ID = E->getReceiverInterface()) {
-        Matcher.addImport(SM.getMainFileID(), ID->getLocation(), SM);
+        Matcher.addImport(SM.getMainFileID(), ID, SM);
       } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
         for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
-          Matcher.addImport(SM.getMainFileID(), (*i)->getLocation(), SM);
+          Matcher.addImport(SM.getMainFileID(), *i, SM);
         }
-      } else {
-        llvm::outs() << "failed to unpack expr of kind " << E->getReceiverKind();
-        assert(0);
       }
     }
   }
@@ -235,25 +199,20 @@ namespace import_tidy {
       // import or forward declare the class type
       if (auto *ID = PT->getInterfaceDecl()) {
         auto Filename = SM.getFilename(ID->getLocation());
-        if (Filename.startswith(Matcher.getSysroot())) {
-          Matcher.addImport(InFile, ID->getLocation(), SM);
-        } else {
-          Matcher.addForwardDeclare(InFile, ID->getName(), true);
-        }
+        bool isSystemDecl = Filename.startswith(Matcher.getSysroot());
+        Matcher.addImport(InFile, ID, SM, !isSystemDecl);
       }
 
       // import or forward declare any protocols being conformed to
       for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
-        if (SM.getFilename((*i)->getLocStart()).startswith(Matcher.getSysroot())) {
-          Matcher.addImport(InFile, (*i)->getLocStart(), SM);
-        } else {
-          Matcher.addForwardDeclare(InFile, (*i)->getName(), false);
-        }
+        auto Filename = SM.getFilename((*i)->getLocation());
+        bool isSystemDecl = Filename.startswith(Matcher.getSysroot());
+        Matcher.addImport(InFile, *i, SM, !isSystemDecl);
       }
     } else if (auto *TD = T->getAs<TypedefType>()) {
       // any typedefs need to be imported
       if (auto *TypeDecl = TD->getDecl()) {
-        Matcher.addImport(InFile, TypeDecl->getLocStart(), SM);
+        Matcher.addImport(InFile, TypeDecl, SM);
       }
     }
   }
@@ -261,7 +220,7 @@ namespace import_tidy {
   void ProtocolCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *PD = Result.Nodes.getNodeAs<ObjCProtocolExpr>(nodeKey)->getProtocol()) {
       auto &SM = *Result.SourceManager;
-      Matcher.addImport(SM.getMainFileID(), PD->getLocation(), SM);
+      Matcher.addImport(SM.getMainFileID(), PD, SM);
     }
   }
 
@@ -291,26 +250,11 @@ namespace import_tidy {
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
 
-  void ImportMatcher::addForwardDeclare(const FileID InFile, llvm::StringRef Name, bool isClass) {
-    auto Type = isClass ? ImportType::ForwardDeclareClass :
-                          ImportType::ForwardDeclareProtocol;
-    ImportMap[InFile].insert(Import(Type, Name));
-  }
-
   void ImportMatcher::addImport(const FileID InFile,
-                                const SourceLocation Loc,
-                                const SourceManager &SM) {
-    auto OfFile = SM.getFileID(Loc);
-    auto ImportedFile = topFileIncludingFile(OfFile, SM);
-    auto ImportedLoc = SM.getLocForStartOfFile(ImportedFile);
-
-    Import Imp = importForFileLoc(ImportedLoc, SM);
-    if (ImportMap[InFile].count(Imp) == 0) {
-      ImportMap[InFile].insert(Imp);
-      if (Imp.getType() == ImportType::Library) {
-        LibraryImportCount[Imp]++;
-      }
-    }
+                                const Decl *D,
+                                const SourceManager &SM,
+                                bool isForwardDeclare) {
+    ImportMap[InFile].push_back(Import(SM, D, isForwardDeclare));
   }
 
   void ImportMatcher::removeImport(const SourceLocation Loc, const SourceManager &SM) {
@@ -354,19 +298,19 @@ namespace import_tidy {
   }
 
   void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
-    using ImpPair = std::pair<Import, unsigned>;
-    std::vector<ImpPair> counts(LibraryImportCount.begin(), LibraryImportCount.end());
-    std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
-      return L.second < R.second;
-    });
-
-    OS << "\n\n";
-    OS << "--------------------------------" << "\n";
-    OS << "Libraries sorted by import count" << "\n";
-    OS << "--------------------------------" << "\n";
-    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
-      OS << I->first << " : " << I->second << " times\n";
-    }
+//    using ImpPair = std::pair<Import, unsigned>;
+//    std::vector<ImpPair> counts(LibraryImportCount.begin(), LibraryImportCount.end());
+//    std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
+//      return L.second < R.second;
+//    });
+//
+//    OS << "\n\n";
+//    OS << "--------------------------------" << "\n";
+//    OS << "Libraries sorted by import count" << "\n";
+//    OS << "--------------------------------" << "\n";
+//    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
+//      OS << I->first << " : " << I->second << " times\n";
+//    }
   }
 
 } // end namespace import_tidy
