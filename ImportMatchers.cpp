@@ -273,24 +273,27 @@ namespace import_tidy {
     for (auto &Pair : ImportMap) {
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
-      for (auto &Import : Pair.second) {
+      auto Imports = Pair.second;
+      sortedUniqueImports(Imports);
+
+      for (auto &Import : Imports) {
         ImportStr << Import << '\n';
       }
 
-      auto fid = Pair.first;
-      auto start = SM.getLocForStartOfFile(fid);
-      auto Path = SM.getFilename(start);
+      auto Fid = Pair.first;
+      auto Start = SM.getLocForStartOfFile(Fid);
+      auto Path = SM.getFilename(Start);
       if (haveReplacementForFile(Replacements, Path))
         continue;
 
-      auto replacementLength = ImportOffset[fid];
+      auto replacementLength = ImportOffset[Fid];
       if (replacementLength == 0) {
         // make sure there is at least a line of whitespace after the new imports
         ImportStr << '\n';
       }
 
-      Replacements.insert(Replacement(SM, start, replacementLength, ImportStr.str()));
-      out << "File: " << SM.getFilename(start) << "\n";
+      Replacements.insert(Replacement(SM, Start, replacementLength, ImportStr.str()));
+      out << "File: " << SM.getFilename(Start) << "\n";
       out << ImportStr.str() << "\n";
     }
     ImportMap.clear();

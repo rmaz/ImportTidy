@@ -21,15 +21,20 @@ namespace import_tidy {
            const clang::Decl*,
            bool isForwardDeclare = false);
 
+    bool operator==(const Import &RHS) const;
+    bool operator<(const Import &RHS) const;
+
   private:
     friend llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import &);
-    const clang::SourceManager &SM;
+    friend void sortedUniqueImports(std::vector<Import>&);
+    const clang::SourceManager *SM;
     const clang::Decl *ImportedDecl;
-    const clang::FileID File;
-    const ImportType Type;
+    clang::FileID File;
+    ImportType Type;
   };
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import &);
+  void sortedUniqueImports(std::vector<Import>&);
 }
 
 #endif /* defined(__LLVM__Import__) */
