@@ -122,6 +122,18 @@ namespace import_tidy {
     }
   }
 
+  void CastExprCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *PT = Result.Nodes.getNodeAs<CastExpr>(nodeKey)->getType()->getAs<ObjCObjectPointerType>()) {
+      auto &SM = *Result.SourceManager;
+      if (auto *ID = PT->getInterfaceDecl()) {
+        Matcher.addImport(SM.getMainFileID(), ID, SM);
+      }
+      for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
+        Matcher.addImport(SM.getMainFileID(), *i, SM);
+      }
+    }
+  }
+
   void InterfaceCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(nodeKey)) {
       auto &SM = *Result.SourceManager;
@@ -233,6 +245,7 @@ namespace import_tidy {
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto CastMatcher = castExpr(isExpansionInMainFile()).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto ForwardDeclareMatcher = interface(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
     auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
@@ -240,6 +253,7 @@ namespace import_tidy {
     auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
     auto ProtoMatcher = protocol(isExpansionInMainFile()).bind(nodeKey);
     Finder.addMatcher(CallMatcher, &CallCallback);
+    Finder.addMatcher(CastMatcher, &CastCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
     Finder.addMatcher(ForwardDeclareMatcher, &StripCallback);
     Finder.addMatcher(ImportMatcher, &StripCallback);
