@@ -273,11 +273,9 @@ namespace import_tidy {
     for (auto &Pair : ImportMap) {
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
-      auto Imports = Pair.second;
-      sortedUniqueImports(Imports);
-
-      for (auto &Import : Imports) {
-        ImportStr << Import << '\n';
+      auto Imports = sortedUniqueImports(Pair.second);
+      for (auto *Import : Imports) {
+        ImportStr << *Import << '\n';
       }
 
       auto Fid = Pair.first;

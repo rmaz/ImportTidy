@@ -23,18 +23,19 @@ namespace import_tidy {
 
     bool operator==(const Import &RHS) const;
     bool operator<(const Import &RHS) const;
+    clang::FileID getFile() const { return File; }
+    llvm::StringRef getName() const { return Name; }
+    ImportType getType() const { return Type; }
 
   private:
-    friend llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import &);
-    friend void sortedUniqueImports(std::vector<Import>&);
-    const clang::SourceManager *SM;
-    const clang::Decl *ImportedDecl;
     clang::FileID File;
+    llvm::StringRef Name;
     ImportType Type;
   };
 
-  llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import &);
-  void sortedUniqueImports(std::vector<Import>&);
+  llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import&);
+  const std::vector<const Import*>
+  sortedUniqueImports(const std::vector<Import>&);
 }
 
 #endif /* defined(__LLVM__Import__) */

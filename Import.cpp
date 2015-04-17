@@ -1,5 +1,7 @@
 #include "Import.h"
 #include "clang/AST/DeclObjC.h"
+#include <set>
+#include <algorithm>
 
 using namespace llvm;
 using namespace clang;
@@ -37,8 +39,8 @@ namespace import_tidy {
     return Path.rfind("/usr/include/") != StringRef::npos;
   }
 
-  static StringRef moduleName(const FileID File, const SourceManager *SM) {
-    return SM->getModuleImportLoc(SM->getLocForStartOfFile(File)).second;
+  static StringRef moduleName(SourceLocation Loc, const SourceManager *SM) {
+    return SM->getModuleImportLoc(Loc).second;
   }
 
   static FileID
@@ -81,88 +83,112 @@ namespace import_tidy {
       return ImportType::File;
   }
 
+  static StringRef importName(ImportType Type,
+                              const FileID File,
+                              const Decl *D,
+                              const SourceManager &SM) {
+    switch (Type) {
+      case ImportType::ForwardDeclareClass:
+      case ImportType::ForwardDeclareProtocol:
+        return dyn_cast<NamedDecl>(D)->getName();
+      case ImportType::Module:
+        return moduleName(D->getLocStart(), &SM);
+      case ImportType::File:
+        return filename(SM.getFilename(SM.getLocForStartOfFile(File)));
+      case ImportType::Library:
+        return SM.getFilename(SM.getLocForStartOfFile(File));
+    }
+  }
+
+  static bool isForwardDeclare(const Import &Import) {
+    auto Type = Import.getType();
+    return Type == ImportType::ForwardDeclareClass ||
+           Type == ImportType::ForwardDeclareProtocol;
+  }
+
 #pragma mark - Import
 
   Import::Import(const SourceManager &SM,
                  const Decl *D,
-                 bool isForwardDeclare) :
-    SM(&SM), ImportedDecl(D),
-    File(topFileIncludingFile(SM.getFileID(D->getLocStart()), SM)),
-    Type(isForwardDeclare ? forwardType(D, SM) : calculateType(File, SM)) {}
+                 bool isForwardDeclare) {
+    File = topFileIncludingFile(SM.getFileID(D->getLocStart()), SM);
+    Type = isForwardDeclare ? forwardType(D, SM) : calculateType(File, SM);
+    Name = importName(Type, File, D, SM);
+  }
 
   bool Import::operator==(const Import &RHS) const {
-    if (Type != RHS.Type)
-      return false;
-
-    switch (Type) {
-      case ImportType::ForwardDeclareClass:
-      case ImportType::ForwardDeclareProtocol:
-        return ImportedDecl == RHS.ImportedDecl;
-      case ImportType::Module:
-        return moduleName(File, SM) == moduleName(RHS.File, RHS.SM);
-      default:
-        return File == RHS.File;
-    }
+    return Type == RHS.Type && Name == RHS.Name;
   }
 
   bool Import::operator<(const Import &RHS) const {
     if (Type != RHS.Type)
       return Type < RHS.Type;
-
-    if (File != RHS.File)
-      return File < RHS.File;
-
-    return ImportedDecl < RHS.ImportedDecl;
+    return Name < RHS.Name;
   }
 
 #pragma mark - Friends
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream &OS, const Import &Import) {
-    auto Loc = Import.SM->getLocForStartOfFile(Import.File);
-    auto Path = Import.SM->getFilename(Loc);
-
-    switch (Import.Type) {
+    switch (Import.getType()) {
       case ImportType::Module:
-        OS << "@import " << moduleName(Import.File, Import.SM) << ";";
+        OS << "@import " << Import.getName() << ";";
         break;
 
       case ImportType::Library: {
         OS << "#import <";
 
-        if (isFramework(Path)) {
+        auto Path = Import.getName();
+        if (isFramework(Path))
           OS << frameworkName(Path) << "/" << filename(Path);
-        } else if (isSystemLibrary(Path)) {
+        else if (isSystemLibrary(Path))
           OS << strippedLibraryPath(Path);
-        } else {
+        else
           OS << twoLevelPath(Path);
-        }
 
         OS << ">";
         break;
       }
 
       case ImportType::File:
-        OS << "#import \"" << filename(Path) << "\"";
+        OS << "#import \"" << Import.getName() << "\"";
         break;
 
-      case ImportType::ForwardDeclareClass: {
-        auto *ID = dyn_cast<ObjCInterfaceDecl>(Import.ImportedDecl);
-        OS << "@class " << ID->getName() << ";";
+      case ImportType::ForwardDeclareClass:
+        OS << "@class " << Import.getName() << ";";
         break;
-      }
 
-      case ImportType::ForwardDeclareProtocol: {
-        auto *PD = dyn_cast<ObjCProtocolDecl>(Import.ImportedDecl);
-        OS << "@protocol " << PD->getName() << ";";
+      case ImportType::ForwardDeclareProtocol:
+        OS << "@protocol " << Import.getName() << ";";
         break;
-      }
     }
     return OS;
   }
 
-  void sortedUniqueImports(std::vector<Import> &Imports) {
-    std::sort(Imports.begin(), Imports.end());
-    auto last = std::unique(Imports.begin(), Imports.end());
-    Imports.erase(last, Imports.end());
+  const std::vector<const Import*>
+  sortedUniqueImports(const std::vector<Import> &Imports) {
+    // get the set of imported files so we can remove unneeded forward declares
+    std::set<const FileID> ImportedFiles;
+    for (auto &I : Imports) {
+      if (!isForwardDeclare(I))
+        ImportedFiles.insert(I.getFile());
+    }    
+
+    std::vector<const Import*> SortedImports;
+    for (auto &I : Imports) {
+      if (!(isForwardDeclare(I) && ImportedFiles.count(I.getFile()) > 0))
+        SortedImports.push_back(&I);
+    }
+
+    std::sort(SortedImports.begin(), SortedImports.end(),
+              [](const Import *LHS, const Import *RHS) {
+                return *LHS < *RHS;
+              });
+    auto End = std::unique(SortedImports.begin(), SortedImports.end(),
+                           [](const Import *LHS, const Import *RHS) {
+                             return *LHS == *RHS;
+                           });
+    SortedImports.erase(End, SortedImports.end());
+
+    return SortedImports;
   }
 }
