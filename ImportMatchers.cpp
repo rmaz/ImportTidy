@@ -184,6 +184,7 @@ namespace import_tidy {
   void MessageExprCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
+      Matcher.addImport(SM.getMainFileID(), E->getMethodDecl(), SM);
 
       if (auto *ID = E->getReceiverInterface()) {
         Matcher.addImport(SM.getMainFileID(), ID, SM);
@@ -268,6 +269,14 @@ namespace import_tidy {
                                 const Decl *D,
                                 const SourceManager &SM,
                                 bool isForwardDeclare) {
+    // only allow file locations
+    if (SM.getFilename(D->getLocStart()).size() == 0)
+      return;
+
+    // don't include files in themselves
+    if (SM.getFileID(D->getLocStart()) == InFile)
+      return;
+
     ImportMap[InFile].push_back(Import(SM, D, isForwardDeclare));
   }
 
