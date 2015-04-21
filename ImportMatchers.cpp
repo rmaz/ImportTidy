@@ -70,6 +70,30 @@ namespace {
     return Found != Replacements.end();
   }
 
+  unsigned RangeEnd(const Range &R) {
+    return R.getOffset() + R.getLength();
+  }
+
+  static std::vector<Range> collapsedRanges(const std::vector<Range> &Ranges) {
+    std::vector<Range> sorted(Ranges.begin(), Ranges.end());
+    std::sort(sorted.begin(), sorted.end(), [](Range &lhs, Range &rhs) {
+      return lhs.getOffset() < rhs.getOffset();
+    });
+
+    for (auto I = sorted.begin(); I < sorted.end() - 1; I++) {
+      auto FirstRange = *I;
+      auto NextRange = *(I + 1);
+
+      if (RangeEnd(FirstRange) >= NextRange.getOffset()) {
+        *I = Range(FirstRange.getOffset(),
+                   RangeEnd(NextRange) - FirstRange.getOffset());
+        sorted.erase(I + 1);
+      }
+    }
+
+    return sorted;
+  }
+
   class ImportCallbacks : public clang::PPCallbacks {
   public:
     ImportCallbacks(const SourceManager &SM, ImportMatcher &M) :
@@ -284,10 +308,9 @@ namespace import_tidy {
     auto fid = SM.getFileID(Loc);
     auto *fileStart = SM.getBuffer(fid)->getBufferStart();
     unsigned start = SM.getFileOffset(Loc);
-    unsigned end = strchr(fileStart + start, '\n') - fileStart + 1;
+    unsigned length = strchr(fileStart + start, '\n') - fileStart - start + 1;
 
-    // TODO: this is a dangerous assumption, should be modelled as a set of ranges
-    ImportOffset[fid] = std::max(ImportOffset[fid], end);
+    ImportRanges[fid].push_back(Range(start, length));
   }
 
   void ImportMatcher::flush(const SourceManager &SM) {
@@ -302,23 +325,29 @@ namespace import_tidy {
       }
 
       auto Fid = Pair.first;
-      auto Start = SM.getLocForStartOfFile(Fid);
-      auto Path = SM.getFilename(Start);
+      auto StartLoc = SM.getLocForStartOfFile(Fid);
+      auto Path = SM.getFilename(StartLoc);
       if (haveReplacementForFile(Replacements, Path))
         continue;
 
-      auto replacementLength = ImportOffset[Fid];
-      if (replacementLength == 0) {
+      auto ReplacementRanges = collapsedRanges(ImportRanges[Fid]);
+      if (ReplacementRanges.size() == 0) {
         // make sure there is at least a line of whitespace after the new imports
         ImportStr << '\n';
       }
 
-      Replacements.insert(Replacement(SM, Start, replacementLength, ImportStr.str()));
-      out << "File: " << SM.getFilename(Start) << "\n";
+      for (auto I = ReplacementRanges.cbegin(); I != ReplacementRanges.cend(); I++) {
+        auto Text = I == ReplacementRanges.cbegin() ? ImportStr.str() : "";
+        auto Start = StartLoc.getLocWithOffset(I->getOffset());
+
+        Replacements.insert(Replacement(SM, Start, I->getLength(), Text));
+      }
+
+      out << "File: " << SM.getFilename(StartLoc) << "\n";
       out << ImportStr.str() << "\n";
     }
     ImportMap.clear();
-    ImportOffset.clear();
+    ImportRanges.clear();
   }
 
   void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
