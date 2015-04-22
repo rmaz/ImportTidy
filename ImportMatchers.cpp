@@ -44,14 +44,14 @@ namespace ast_matchers {
     return !SM.isInSystemHeader(Loc);
   }
 
-  AST_MATCHER(ObjCMethodDecl, isDefinedInHeader) {
+  AST_MATCHER(ObjCMethodDecl, isDefinedInHeaderOrMainFile) {
     auto *ID = Node.getClassInterface();
     if (!ID || !ID->getImplementation())
       return false;
 
     auto &SM = Finder->getASTContext().getSourceManager();
     if (SM.isInMainFile(SM.getExpansionLoc(Node.getLocStart())))
-      return false;
+      return true;
 
     auto ImpLoc = SM.getExpansionLoc(ID->getImplementation()->getLocStart());
     return SM.isInMainFile(ImpLoc);
@@ -76,6 +76,9 @@ namespace {
 
   static std::vector<Range> collapsedRanges(const std::vector<Range> &Ranges) {
     std::vector<Range> sorted(Ranges.begin(), Ranges.end());
+    if (Ranges.size() == 0)
+      return sorted;
+
     std::sort(sorted.begin(), sorted.end(), [](Range &lhs, Range &rhs) {
       return lhs.getOffset() < rhs.getOffset();
     });
@@ -239,19 +242,21 @@ namespace import_tidy {
   }
 
   void MethodCallback::addType(const FileID InFile, QualType T, const SourceManager &SM) {
+    bool isMainFile = SM.getMainFileID() == InFile;
+
     if (auto *PT = T->getAs<ObjCObjectPointerType>()) {
       // import or forward declare the class type
       if (auto *ID = PT->getInterfaceDecl()) {
         auto Filename = SM.getFilename(ID->getLocation());
         bool isSystemDecl = Filename.startswith(Matcher.getSysroot());
-        Matcher.addImport(InFile, ID, SM, !isSystemDecl);
+        Matcher.addImport(InFile, ID, SM, !isSystemDecl && !isMainFile);
       }
 
       // import or forward declare any protocols being conformed to
       for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
         auto Filename = SM.getFilename((*i)->getLocation());
         bool isSystemDecl = Filename.startswith(Matcher.getSysroot());
-        Matcher.addImport(InFile, *i, SM, !isSystemDecl);
+        Matcher.addImport(InFile, *i, SM, !isSystemDecl && !isMainFile);
       }
     } else if (auto *TD = T->getAs<TypedefType>()) {
       // any typedefs need to be imported
@@ -282,7 +287,7 @@ namespace import_tidy {
     auto ForwardDeclareMatcher = interface(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
     auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
-    auto MtdMatcher = method(isDefinedInHeader()).bind(nodeKey);
+    auto MtdMatcher = method(isDefinedInHeaderOrMainFile()).bind(nodeKey);
     auto ProtoMatcher = protocol(isExpansionInMainFile()).bind(nodeKey);
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(CastMatcher, &CastCallback);
