@@ -147,13 +147,20 @@ namespace import_tidy {
   }
 
   void CastExprCallback::run(const MatchFinder::MatchResult &Result) {
-    if (auto *PT = Result.Nodes.getNodeAs<CastExpr>(nodeKey)->getType()->getAs<ObjCObjectPointerType>()) {
+    if (auto *CE = Result.Nodes.getNodeAs<CastExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
-      if (auto *ID = PT->getInterfaceDecl()) {
-        Matcher.addImport(SM.getMainFileID(), ID, SM);
-      }
-      for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
-        Matcher.addImport(SM.getMainFileID(), *i, SM);
+
+      if (auto *PT = CE->getType()->getAs<ObjCObjectPointerType>()) {
+        if (auto *ID = PT->getInterfaceDecl()) {
+          Matcher.addImport(SM.getMainFileID(), ID, SM);
+        }
+        for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
+          Matcher.addImport(SM.getMainFileID(), *i, SM);
+        }
+      } else if (auto *DRE = dyn_cast<DeclRefExpr>(CE->getSubExpr())) {
+        if (auto *ECD = dyn_cast<EnumConstantDecl>(DRE->getDecl())) {
+          Matcher.addImport(SM.getMainFileID(), ECD, SM);
+        }
       }
     }
   }
