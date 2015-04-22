@@ -310,7 +310,7 @@ namespace import_tidy {
       return;
 
     // don't include files in themselves
-    if (SM.getFileID(D->getLocStart()) == InFile)
+    if (!isForwardDeclare && SM.getFileID(D->getLocStart()) == InFile)
       return;
 
     ImportMap[InFile].push_back(Import(SM, D, isForwardDeclare));
