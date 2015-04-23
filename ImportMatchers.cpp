@@ -83,14 +83,13 @@ namespace {
       return lhs.getOffset() < rhs.getOffset();
     });
 
-    for (auto I = sorted.begin(); I < sorted.end() - 1; I++) {
-      auto FirstRange = *I;
-      auto NextRange = *(I + 1);
-
-      if (RangeEnd(FirstRange) >= NextRange.getOffset()) {
-        *I = Range(FirstRange.getOffset(),
-                   RangeEnd(NextRange) - FirstRange.getOffset());
+    auto I = sorted.begin();
+    while (I < sorted.end() - 1) {
+      if (RangeEnd(*I) >= (*(I + 1)).getOffset()) {
+        *I = Range((*I).getOffset(), RangeEnd(*(I+1)) - (*I).getOffset());
         sorted.erase(I + 1);
+      } else {
+        I++;
       }
     }
 
@@ -275,7 +274,9 @@ namespace import_tidy {
 
   void StripCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *D = Result.Nodes.getNodeAs<Decl>(nodeKey)) {
-      Matcher.removeImport(D->getLocStart(), *Result.SourceManager);
+      // implicit imports will already be stripped by the preprocessor callbacks
+      if (!D->isImplicit())
+        Matcher.removeImport(D->getLocStart(), *Result.SourceManager);
     }
   }
 
