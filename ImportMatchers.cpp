@@ -275,7 +275,7 @@ namespace import_tidy {
 
   void StripCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *D = Result.Nodes.getNodeAs<Decl>(nodeKey)) {
-      Matcher.removeImport(D->getLocation(), *Result.SourceManager);
+      Matcher.removeImport(D->getLocStart(), *Result.SourceManager);
     }
   }
 
