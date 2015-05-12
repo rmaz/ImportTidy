@@ -262,6 +262,13 @@ namespace import_tidy {
       if (auto *TypeDecl = TD->getDecl()) {
         Matcher.addImport(InFile, TypeDecl, SM);
       }
+    } else if (auto *BP = T->getAs<BlockPointerType>()) {
+        // any types used in blocks need to be imported
+        auto *FT = BP->getPointeeType()->getAs<FunctionProtoType>();
+        addType(InFile, FT->getReturnType(), SM);
+        for (auto PT : FT->param_types()) {
+            addType(InFile, PT, SM);
+        }
     }
   }
 
