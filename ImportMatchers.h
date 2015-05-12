@@ -41,6 +41,14 @@ namespace import_tidy {
     ImportMatcher &Matcher;
   };
 
+  class DeclRefCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
+  public:
+      DeclRefCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
+      void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
+  private:
+      ImportMatcher &Matcher;
+  };
+
   class InterfaceCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
     InterfaceCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
@@ -86,7 +94,8 @@ namespace import_tidy {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
       ImportRanges(), ImportMap(),
-      CallCallback(*this), CastCallback(*this), InterfaceCallback(*this),
+      CallCallback(*this), CastCallback(*this), DeclRefCallback(*this),
+      InterfaceCallback(*this),
       MsgCallback(*this), MtdCallback(*this), ProtoCallback(*this),
       StripCallback(*this), FileCallbacks(*this), Replacements(Replacements) {};
 
@@ -106,6 +115,7 @@ namespace import_tidy {
     std::map<clang::FileID, std::vector<Import>> ImportMap;
     CallExprCallback CallCallback;
     CastExprCallback CastCallback;
+    DeclRefCallback DeclRefCallback;
     InterfaceCallback InterfaceCallback;
     MessageExprCallback MsgCallback;
     MethodCallback MtdCallback;

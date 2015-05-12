@@ -167,6 +167,15 @@ namespace import_tidy {
     }
   }
 
+  void DeclRefCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
+      // any referenced globals need importing
+      auto &SM = *Result.SourceManager;
+      auto InFile = SM.getFileID(DRE->getLocStart());
+      Matcher.addImport(InFile, DRE->getDecl(), SM);
+    }
+  }
+
   void InterfaceCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *ID = Result.Nodes.getNodeAs<ObjCInterfaceDecl>(nodeKey)) {
       auto &SM = *Result.SourceManager;
@@ -291,6 +300,8 @@ namespace import_tidy {
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
     auto CastMatcher = castExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto DeclRefMatcher = declRefExpr(isExpansionInMainFile(),
+                                      to(varDecl(hasGlobalStorage()))).bind(nodeKey);
     auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
     auto ForwardDeclareMatcher = interface(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
     auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
@@ -300,6 +311,7 @@ namespace import_tidy {
 
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(CastMatcher, &CastCallback);
+    Finder.addMatcher(DeclRefMatcher, &DeclRefCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
     Finder.addMatcher(ForwardDeclareMatcher, &StripCallback);
     Finder.addMatcher(ImportMatcher, &StripCallback);
