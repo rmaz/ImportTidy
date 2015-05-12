@@ -16,7 +16,7 @@ namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interface;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> method;
-  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocol;
+  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocolExpr;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> import;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
@@ -273,9 +273,9 @@ namespace import_tidy {
   }
 
   void ProtocolCallback::run(const MatchFinder::MatchResult &Result) {
-    if (auto *PD = Result.Nodes.getNodeAs<ObjCProtocolExpr>(nodeKey)->getProtocol()) {
+    if (auto *PE = Result.Nodes.getNodeAs<ObjCProtocolExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
-      Matcher.addImport(SM.getMainFileID(), PD, SM);
+      Matcher.addImport(SM.getMainFileID(), PE->getProtocol(), SM);
     }
   }
 
@@ -296,7 +296,8 @@ namespace import_tidy {
     auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
     auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = method(isDefinedInHeaderOrMainFile()).bind(nodeKey);
-    auto ProtoMatcher = protocol(isExpansionInMainFile()).bind(nodeKey);
+    auto ProtoExprMatcher = protocolExpr(isExpansionInMainFile()).bind(nodeKey);
+
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(CastMatcher, &CastCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
@@ -304,7 +305,7 @@ namespace import_tidy {
     Finder.addMatcher(ImportMatcher, &StripCallback);
     Finder.addMatcher(MsgMatcher, &MsgCallback);
     Finder.addMatcher(MtdMatcher, &MtdCallback);
-    Finder.addMatcher(ProtoMatcher, &ProtoCallback);
+    Finder.addMatcher(ProtoExprMatcher, &ProtoCallback);
 
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
