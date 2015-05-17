@@ -162,11 +162,16 @@ namespace import_tidy {
   }
 
   void ProtocolCallback::run(const MatchFinder::MatchResult &Result) {
+    auto &SM = *Result.SourceManager;
+
     if (auto *PE = Result.Nodes.getNodeAs<ObjCProtocolExpr>(nodeKey)) {
-      auto &SM = *Result.SourceManager;
       Matcher.addImport(SM.getMainFileID(), PE->getProtocol(), SM);
     } else if (auto *PD = Result.Nodes.getNodeAs<ObjCProtocolDecl>(nodeKey)) {
-      PD->dump();
+      if (PD->isThisDeclarationADefinition()) {
+        for (auto *P : PD->protocols()) {
+          Matcher.addImport(SM.getFileID(PD->getLocStart()), P, SM);
+        }
+      }
     }
   }
 
