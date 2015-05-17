@@ -137,9 +137,15 @@ namespace import_tidy {
 
   void ImportMatcher::removeImport(const SourceLocation Loc, const SourceManager &SM) {
     auto fid = SM.getFileID(Loc);
-    auto *fileStart = SM.getBuffer(fid)->getBufferStart();
+    auto *buffer = SM.getBuffer(fid);
+    auto *fileStart = buffer->getBufferStart();
     unsigned start = SM.getFileOffset(Loc);
     unsigned length = strchr(fileStart + start, '\n') - fileStart - start + 1;
+
+    // strip any empty lines after this import
+    auto *c = fileStart + start + length;
+    while (*c == '\n' && c++ < buffer->getBufferEnd())
+      length++;
 
     ImportRanges[fid].push_back(Range(start, length));
   }
@@ -197,6 +203,7 @@ namespace import_tidy {
       for (auto *Import : Imports) {
         ImportStr << *Import << '\n';
       }
+      ImportStr << '\n';
 
       auto Fid = Pair.first;
       auto StartLoc = SM.getLocForStartOfFile(Fid);
@@ -205,11 +212,6 @@ namespace import_tidy {
         continue;
 
       auto ReplacementRanges = collapsedRanges(ImportRanges[Fid]);
-      if (ReplacementRanges.size() == 0) {
-        // make sure there is at least a line of whitespace after the new imports
-        ImportStr << '\n';
-      }
-
       for (auto I = ReplacementRanges.cbegin(); I != ReplacementRanges.cend(); I++) {
         auto Text = I == ReplacementRanges.cbegin() ? ImportStr.str() : "";
         auto Start = StartLoc.getLocWithOffset(I->getOffset());
