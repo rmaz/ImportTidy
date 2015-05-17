@@ -39,7 +39,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Signals.h"
-#include "ImportMatchers.h"
+#include "ImportMatcher.h"
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -58,7 +58,7 @@ int main(int argc, const char **argv) {
                        OptionsParser.getSourcePathList());
   MatchFinder Finder;
   ImportMatcher IM(Tool.getReplacements());
-  Tool.runAndSave(IM.getActionFactory(Finder).get());
+  Tool.run(IM.getActionFactory(Finder).get());
   IM.printLibraryCounts(llvm::outs());
 
   return 0;
