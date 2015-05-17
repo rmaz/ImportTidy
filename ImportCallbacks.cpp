@@ -100,6 +100,7 @@ namespace import_tidy {
 
       // import this file, it is a header
       if (InFile != SM.getMainFileID()) {
+        Matcher.addHeaderFile(InFile);
         Matcher.addImport(SM.getMainFileID(), ID, SM);
       }
 

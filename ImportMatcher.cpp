@@ -194,8 +194,14 @@ namespace import_tidy {
 
   void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
+    HeaderFiles.insert(SM.getMainFileID());
 
     for (auto &Pair : ImportMap) {
+      // only tidy the main file and files with interfaces
+      // implemented in the main file
+      if (HeaderFiles.count(Pair.first) == 0)
+        continue;
+
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
       auto Imports = sortedUniqueImports(Pair.second);
@@ -227,6 +233,7 @@ namespace import_tidy {
     }
     ImportMap.clear();
     ImportRanges.clear();
+    HeaderFiles.clear();
   }
 
   void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
