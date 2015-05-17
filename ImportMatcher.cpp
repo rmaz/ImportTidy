@@ -12,12 +12,13 @@ using namespace import_tidy;
 
 namespace clang {
 namespace ast_matchers {
-  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> message;
-  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interface;
-  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> method;
+  static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> messageExpr;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interfaceDecl;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCContainerDecl> containerDecl;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> objcMethodDecl;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCProtocolDecl> protocolDecl;
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocolExpr;
-  static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> import;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> importDecl;
 
   AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
     if (!Node.isThisDeclarationADefinition())
@@ -42,19 +43,6 @@ namespace ast_matchers {
 
     auto &SM = Finder->getASTContext().getSourceManager();
     return !SM.isInSystemHeader(Loc);
-  }
-
-  AST_MATCHER(ObjCMethodDecl, isDefinedInHeaderOrMainFile) {
-    auto *ID = Node.getClassInterface();
-    if (!ID || !ID->getImplementation())
-      return false;
-
-    auto &SM = Finder->getASTContext().getSourceManager();
-    if (SM.isInMainFile(SM.getExpansionLoc(Node.getLocStart())))
-      return true;
-
-    auto ImpLoc = SM.getExpansionLoc(ID->getImplementation()->getLocStart());
-    return SM.isInMainFile(ImpLoc);
   }
 
 } // end namespace ast_matchers
@@ -108,13 +96,14 @@ namespace import_tidy {
     auto CastMatcher = castExpr(isExpansionInMainFile()).bind(nodeKey);
     auto DeclRefMatcher = declRefExpr(isExpansionInMainFile(),
                                       to(varDecl(hasGlobalStorage()))).bind(nodeKey);
-    auto InterfaceMatcher = interface(isImplementationInMainFile()).bind(nodeKey);
-    auto ForwardDeclareMatcher = interface(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
-    auto ImportMatcher = import(isNotInSystemHeader()).bind(nodeKey);
-    auto MsgMatcher = message(isExpansionInMainFile()).bind(nodeKey);
-    auto MtdMatcher = method(isDefinedInHeaderOrMainFile()).bind(nodeKey);
-    auto ProtoExprMatcher = protocolExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto InterfaceMatcher = interfaceDecl(isImplementationInMainFile()).bind(nodeKey);
+    auto ForwardDeclareMatcher = interfaceDecl(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
+    auto ImportMatcher = importDecl(isNotInSystemHeader()).bind(nodeKey);
+    auto MsgMatcher = messageExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto MtdMatcher = containerDecl(isNotInSystemHeader(),
+                                    forEachDescendant(objcMethodDecl().bind(nodeKey)));
     auto ProtoDeclMatcher = protocolDecl(isNotInSystemHeader()).bind(nodeKey);
+    auto ProtoExprMatcher = protocolExpr(isExpansionInMainFile()).bind(nodeKey);
 
     Finder.addMatcher(CallMatcher, &CallCallback);
     Finder.addMatcher(CastMatcher, &CastCallback);
