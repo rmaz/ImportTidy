@@ -144,12 +144,13 @@ namespace import_tidy {
 
     // strip any empty lines after this import
     auto *c = fileStart + start + length;
-    while (*c == '\n' && c++ < buffer->getBufferEnd())
+    while (isWhitespace(*c) && c++ < buffer->getBufferEnd())
       length++;
 
     ImportRanges[fid].push_back(Range(start, length));
   }
 
+  // TODO: move this into ImportCallbacks as a helper function
   void ImportMatcher::addType(const FileID InFile, QualType T, const SourceManager &SM) {
     bool isMainFile = SM.getMainFileID() == InFile;
 
