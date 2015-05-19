@@ -33,7 +33,7 @@ namespace ast_matchers {
   }
 
   AST_MATCHER(ObjCInterfaceDecl, isForwardDeclare) {
-    return !Node.hasDefinition();
+    return !Node.isThisDeclarationADefinition();
   }
 
   AST_MATCHER(Decl, isNotInSystemHeader) {
