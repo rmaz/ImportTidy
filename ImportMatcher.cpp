@@ -204,6 +204,9 @@ namespace import_tidy {
       auto Imports = sortedUniqueImports(Pair.second);
       for (auto *Import : Imports) {
         ImportStr << *Import << '\n';
+        if (Import->getType() == ImportType::Library) {
+          LibraryCounts[Import->getName()]++;
+        }
       }
       ImportStr << '\n';
 
@@ -230,19 +233,19 @@ namespace import_tidy {
   }
 
   void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
-//    using ImpPair = std::pair<Import, unsigned>;
-//    std::vector<ImpPair> counts(LibraryImportCount.begin(), LibraryImportCount.end());
-//    std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
-//      return L.second < R.second;
-//    });
-//
-//    OS << "\n\n";
-//    OS << "--------------------------------" << "\n";
-//    OS << "Libraries sorted by import count" << "\n";
-//    OS << "--------------------------------" << "\n";
-//    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
-//      OS << I->first << " : " << I->second << " times\n";
-//    }
+    using ImpPair = std::pair<StringRef, unsigned>;
+    std::vector<ImpPair> counts(LibraryCounts.begin(), LibraryCounts.end());
+    std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
+      return L.second < R.second;
+    });
+
+    OS << "\n\n";
+    OS << "--------------------------------" << "\n";
+    OS << "Libraries sorted by import count" << "\n";
+    OS << "--------------------------------" << "\n";
+    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
+      OS << I->first << " : " << I->second << " times\n";
+    }
   }
 
 } // end namespace import_tidy
