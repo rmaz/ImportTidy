@@ -83,7 +83,7 @@ namespace import_tidy {
     if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
       // any referenced globals need importing
       auto &SM = *Result.SourceManager;
-      auto InFile = SM.getFileID(DRE->getLocStart());
+      auto InFile = SM.getFileID(DRE->getLocation());
       Matcher.addImport(InFile, DRE->getDecl(), SM);
     }
   }

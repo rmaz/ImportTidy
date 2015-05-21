@@ -92,7 +92,7 @@ namespace import_tidy {
       case ImportType::ForwardDeclareProtocol:
         return dyn_cast<NamedDecl>(D)->getName();
       case ImportType::Module:
-        return moduleName(D->getLocStart(), &SM);
+        return moduleName(D->getLocation(), &SM);
       case ImportType::File:
         return filename(SM.getFilename(SM.getLocForStartOfFile(File)));
       case ImportType::Library:
@@ -111,7 +111,7 @@ namespace import_tidy {
   Import::Import(const SourceManager &SM,
                  const Decl *D,
                  bool isForwardDeclare) {
-    File = topFileIncludingFile(SM.getFileID(D->getLocStart()), SM);
+    File = topFileIncludingFile(SM.getFileID(D->getLocation()), SM);
     Type = isForwardDeclare ? forwardType(D, SM) : calculateType(File, SM);
     Name = importName(Type, File, D, SM);
   }

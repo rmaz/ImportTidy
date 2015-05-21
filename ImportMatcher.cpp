@@ -123,13 +123,14 @@ namespace import_tidy {
                                 const Decl *D,
                                 const SourceManager &SM,
                                 bool isForwardDeclare) {
+    auto Loc = D->getLocation();
+
     // only allow file locations
-    if (!SM.getFileEntryForID(InFile) ||
-        SM.getFilename(D->getLocStart()).size() == 0)
+    if (!SM.getFileEntryForID(InFile) || SM.getFilename(Loc).size() == 0)
       return;
 
     // don't include files in themselves
-    if (!isForwardDeclare && SM.getFileID(D->getLocStart()) == InFile)
+    if (!isForwardDeclare && SM.getFileID(Loc) == InFile)
       return;
 
     ImportMap[InFile].push_back(Import(SM, D, isForwardDeclare));
