@@ -34,8 +34,8 @@ namespace import_tidy {
   };
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import&);
-  const std::vector<const Import*>
-  sortedUniqueImports(const std::vector<Import>&);
+  const std::vector<const Import*> sortedUniqueImports(const std::vector<Import>&);
+  clang::SourceLocation getDeclLoc(const clang::Decl*);
 }
 
 #endif /* defined(__LLVM__Import__) */

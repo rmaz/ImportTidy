@@ -123,9 +123,8 @@ namespace import_tidy {
                                 const Decl *D,
                                 const SourceManager &SM,
                                 bool isForwardDeclare) {
-    auto Loc = D->getLocation();
-
     // only allow file locations
+    auto Loc = getDeclLoc(D);
     if (!SM.getFileEntryForID(InFile) || SM.getFilename(Loc).size() == 0)
       return;
 
