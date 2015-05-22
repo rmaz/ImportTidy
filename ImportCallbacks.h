@@ -19,69 +19,23 @@ namespace import_tidy {
     const clang::SourceManager *SourceMgr;
   };
 
-  class CallExprCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    CallExprCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
+#define IMPORTCALLBACK(NAME) \
+  class NAME : public clang::ast_matchers::MatchFinder::MatchCallback { \
+  public: \
+    NAME(ImportMatcher &Matcher) : Matcher(Matcher) { }; \
+    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override; \
+  private: \
+    ImportMatcher &Matcher; \
   };
 
-  class CastExprCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    CastExprCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class DeclRefCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    DeclRefCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class InterfaceCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    InterfaceCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class MessageExprCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    MessageExprCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class MethodCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    MethodCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class ProtocolCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    ProtocolCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
-
-  class StripCallback : public clang::ast_matchers::MatchFinder::MatchCallback {
-  public:
-    StripCallback(ImportMatcher &Matcher) : Matcher(Matcher) { };
-    void run(const clang::ast_matchers::MatchFinder::MatchResult&) override;
-  private:
-    ImportMatcher &Matcher;
-  };
+  IMPORTCALLBACK(CallExprCallback)
+  IMPORTCALLBACK(DeclRefCallback)
+  IMPORTCALLBACK(FuncDeclCallback)
+  IMPORTCALLBACK(InterfaceCallback)
+  IMPORTCALLBACK(MessageExprCallback)
+  IMPORTCALLBACK(MethodCallback)
+  IMPORTCALLBACK(ProtocolCallback)
+  IMPORTCALLBACK(StripCallback)
 }
 
 #endif /* defined(__LLVM__ImportCallbacks__) */

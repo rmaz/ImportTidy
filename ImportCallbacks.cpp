@@ -60,31 +60,23 @@ namespace import_tidy {
     }
   }
 
-  void CastExprCallback::run(const MatchFinder::MatchResult &Result) {
-    if (auto *CE = Result.Nodes.getNodeAs<CastExpr>(nodeKey)) {
+  void DeclRefCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
-
-      if (auto *PT = CE->getType()->getAs<ObjCObjectPointerType>()) {
-        if (auto *ID = PT->getInterfaceDecl()) {
-          Matcher.addImport(SM.getMainFileID(), ID, SM);
-        }
-        for (auto i = PT->qual_begin(); i != PT->qual_end(); i++) {
-          Matcher.addImport(SM.getMainFileID(), *i, SM);
-        }
-      } else if (auto *DRE = dyn_cast<DeclRefExpr>(CE->getSubExpr())) {
-        if (auto *ECD = dyn_cast<EnumConstantDecl>(DRE->getDecl())) {
-          Matcher.addImport(SM.getMainFileID(), ECD, SM);
-        }
-      }
+      auto InFile = SM.getFileID(DRE->getLocation());
+      Matcher.addType(InFile, DRE->getDecl()->getType(), SM);
     }
   }
 
-  void DeclRefCallback::run(const MatchFinder::MatchResult &Result) {
-    if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
-      // any referenced globals need importing
-      auto &SM = *Result.SourceManager;
-      auto InFile = SM.getFileID(DRE->getLocation());
-      Matcher.addImport(InFile, DRE->getDecl(), SM);
+  void FuncDeclCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *FD = Result.Nodes.getNodeAs<FunctionDecl>(nodeKey)) {
+      if (FD->hasPrototype() && FD->isThisDeclarationADefinition()) {
+        for (auto *RD : FD->redecls()) {
+          if (RD != FD && RD->isExternC()) {
+            Matcher.addHeaderFile(Result.SourceManager->getFileID(RD->getLocation()));
+          }
+        }
+      }
     }
   }
 

@@ -36,7 +36,8 @@ namespace ast_matchers {
     return !Node.isThisDeclarationADefinition();
   }
 
-  AST_MATCHER(Decl, isNotInSystemHeader) {
+  AST_POLYMORPHIC_MATCHER(isNotInSystemHeader,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_2(Decl, Stmt)) {
     auto Loc = Node.getLocation();
     if (!Loc.isValid())
       return false;
@@ -93,9 +94,7 @@ namespace import_tidy {
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
-    auto CastMatcher = castExpr(isExpansionInMainFile()).bind(nodeKey);
-    auto DeclRefMatcher = declRefExpr(isExpansionInMainFile(),
-                                      to(varDecl(hasGlobalStorage()))).bind(nodeKey);
+    auto DeclRefMatcher = declRefExpr(isNotInSystemHeader()).bind(nodeKey);
     auto InterfaceMatcher = interfaceDecl(isImplementationInMainFile()).bind(nodeKey);
     auto ForwardDeclareMatcher = interfaceDecl(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
     auto ImportMatcher = importDecl(isNotInSystemHeader()).bind(nodeKey);
@@ -104,9 +103,9 @@ namespace import_tidy {
                                     forEachDescendant(objcMethodDecl().bind(nodeKey)));
     auto ProtoDeclMatcher = protocolDecl(isNotInSystemHeader()).bind(nodeKey);
     auto ProtoExprMatcher = protocolExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto FuncDecl = functionDecl(isNotInSystemHeader()).bind(nodeKey);
 
     Finder.addMatcher(CallMatcher, &CallCallback);
-    Finder.addMatcher(CastMatcher, &CastCallback);
     Finder.addMatcher(DeclRefMatcher, &DeclRefCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
     Finder.addMatcher(ForwardDeclareMatcher, &StripCallback);
@@ -115,6 +114,7 @@ namespace import_tidy {
     Finder.addMatcher(MtdMatcher, &MtdCallback);
     Finder.addMatcher(ProtoExprMatcher, &ProtoCallback);
     Finder.addMatcher(ProtoDeclMatcher, &ProtoCallback);
+    Finder.addMatcher(FuncDecl, &FuncDeclCallback);
 
     return newFrontendActionFactory(&Finder, &FileCallbacks);
   }
