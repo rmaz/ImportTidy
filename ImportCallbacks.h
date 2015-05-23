@@ -29,6 +29,7 @@ namespace import_tidy {
   };
 
   IMPORTCALLBACK(CallExprCallback)
+  IMPORTCALLBACK(CategoryCallback)
   IMPORTCALLBACK(DeclRefCallback)
   IMPORTCALLBACK(FuncDeclCallback)
   IMPORTCALLBACK(InterfaceCallback)

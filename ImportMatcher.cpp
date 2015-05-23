@@ -15,15 +15,15 @@ namespace ast_matchers {
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> messageExpr;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl> interfaceDecl;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCContainerDecl> containerDecl;
+  static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCCategoryDecl> objcCategoryDecl;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> objcMethodDecl;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ObjCProtocolDecl> protocolDecl;
   static const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr> protocolExpr;
   static const internal::VariadicDynCastAllOfMatcher<Decl, ImportDecl> importDecl;
 
-  AST_MATCHER(ObjCInterfaceDecl, isImplementationInMainFile) {
-    if (!Node.isThisDeclarationADefinition())
-      return false;
-
+  AST_POLYMORPHIC_MATCHER(isImplementationInMainFile,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_2(ObjCInterfaceDecl,
+                                                            ObjCCategoryDecl)) {
     if (auto *ImpDecl = Node.getImplementation()) {
       auto &SourceManager = Finder->getASTContext().getSourceManager();
       return SourceManager.isInMainFile(SourceManager.getExpansionLoc(ImpDecl->getLocStart()));
@@ -32,8 +32,12 @@ namespace ast_matchers {
     }
   }
 
-  AST_MATCHER(ObjCInterfaceDecl, isForwardDeclare) {
-    return !Node.isThisDeclarationADefinition();
+  AST_MATCHER(ObjCInterfaceDecl, isADefinition) {
+    return Node.isThisDeclarationADefinition();
+  }
+
+  AST_MATCHER(FunctionDecl, hasPrototype) {
+    return Node.hasPrototype();
   }
 
   AST_POLYMORPHIC_MATCHER(isNotInSystemHeader,
@@ -94,18 +98,23 @@ namespace import_tidy {
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto CategoryMatcher = objcCategoryDecl(isImplementationInMainFile()).bind(nodeKey);
     auto DeclRefMatcher = declRefExpr(isNotInSystemHeader()).bind(nodeKey);
-    auto InterfaceMatcher = interfaceDecl(isImplementationInMainFile()).bind(nodeKey);
-    auto ForwardDeclareMatcher = interfaceDecl(isNotInSystemHeader(), isForwardDeclare()).bind(nodeKey);
+    auto InterfaceMatcher = interfaceDecl(isADefinition(),
+                                          isImplementationInMainFile()).bind(nodeKey);
+    auto ForwardDeclareMatcher = interfaceDecl(isNotInSystemHeader(),
+                                               unless(isADefinition())).bind(nodeKey);
     auto ImportMatcher = importDecl(isNotInSystemHeader()).bind(nodeKey);
     auto MsgMatcher = messageExpr(isExpansionInMainFile()).bind(nodeKey);
     auto MtdMatcher = containerDecl(isNotInSystemHeader(),
                                     forEachDescendant(objcMethodDecl().bind(nodeKey)));
     auto ProtoDeclMatcher = protocolDecl(isNotInSystemHeader()).bind(nodeKey);
     auto ProtoExprMatcher = protocolExpr(isExpansionInMainFile()).bind(nodeKey);
-    auto FuncDecl = functionDecl(isNotInSystemHeader()).bind(nodeKey);
+    auto FuncDecl = functionDecl(isDefinition(), hasPrototype(),
+                                 isNotInSystemHeader()).bind(nodeKey);
 
     Finder.addMatcher(CallMatcher, &CallCallback);
+    Finder.addMatcher(CategoryMatcher, &CategoryCallback);
     Finder.addMatcher(DeclRefMatcher, &DeclRefCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);
     Finder.addMatcher(ForwardDeclareMatcher, &StripCallback);
@@ -216,12 +225,14 @@ namespace import_tidy {
         continue;
 
       auto ReplacementRanges = collapsedRanges(ImportRanges[Fid]);
+      int InsertPos = 0;
       for (auto I = ReplacementRanges.cbegin(); I != ReplacementRanges.cend(); I++) {
-        auto Text = I == ReplacementRanges.cbegin() ? ImportStr.str() : "";
         auto Start = StartLoc.getLocWithOffset(I->getOffset());
-
-        Replacements.insert(Replacement(SM, Start, I->getLength(), Text));
+        Replacements.insert(Replacement(SM, Start, I->getLength(), ""));
+        InsertPos = RangeEnd(*I);
       }
+      Replacements.insert(Replacement(SM, StartLoc.getLocWithOffset(InsertPos),
+                                      0, ImportStr.str()));
 
       out << "File: " << SM.getFilename(StartLoc) << "\n";
       out << ImportStr.str() << "\n";

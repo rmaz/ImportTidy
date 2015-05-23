@@ -60,22 +60,36 @@ namespace import_tidy {
     }
   }
 
+  void CategoryCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *CD = Result.Nodes.getNodeAs<ObjCCategoryDecl>(nodeKey)) {
+      auto &SM = *Result.SourceManager;
+      auto InFile = SM.getFileID(CD->getLocation());
+
+      // import categorized class
+      Matcher.addImport(InFile, CD->getClassInterface(), SM);
+
+      // import this file, it is a header
+      if (InFile != SM.getMainFileID()) {
+        Matcher.addHeaderFile(InFile);
+        Matcher.addImport(SM.getMainFileID(), CD, SM);
+      }
+    }
+  }
+
   void DeclRefCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
       auto InFile = SM.getFileID(DRE->getLocation());
-      Matcher.addType(InFile, DRE->getDecl()->getType(), SM);
+      Matcher.addImport(InFile, DRE->getDecl(), SM);
     }
   }
 
   void FuncDeclCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *FD = Result.Nodes.getNodeAs<FunctionDecl>(nodeKey)) {
-      if (FD->hasPrototype() && FD->isThisDeclarationADefinition()) {
-        for (auto *RD : FD->redecls()) {
-          if (RD != FD && RD->isExternC()) {
-            Matcher.addHeaderFile(Result.SourceManager->getFileID(RD->getLocation()));
-          }
-        }
+      // treat files with function prototypes as headers
+      for (auto *RD : FD->redecls()) {
+        if (RD != FD && RD->isExternC())
+          Matcher.addHeaderFile(Result.SourceManager->getFileID(RD->getLocation()));
       }
     }
   }
