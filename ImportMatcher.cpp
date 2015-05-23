@@ -232,6 +232,9 @@ namespace import_tidy {
   }
 
   void ImportMatcher::printLibraryCounts(llvm::raw_ostream &OS) {
+    if (LibraryCounts.size() == 0)
+      return;
+
     using ImpPair = std::pair<StringRef, unsigned>;
     std::vector<ImpPair> counts(LibraryCounts.begin(), LibraryCounts.end());
     std::sort(counts.begin(), counts.end(), [](const ImpPair &L, const ImpPair &R) {
