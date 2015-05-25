@@ -98,6 +98,7 @@ namespace import_tidy {
   std::unique_ptr<FrontendActionFactory>
   ImportMatcher::getActionFactory(MatchFinder& Finder) {
     auto CallMatcher = callExpr(isExpansionInMainFile()).bind(nodeKey);
+    auto CastMatcher = cStyleCastExpr(isExpansionInMainFile()).bind(nodeKey);
     auto CategoryMatcher = objcCategoryDecl(isImplementationInMainFile()).bind(nodeKey);
     auto DeclRefMatcher = declRefExpr(isNotInSystemHeader()).bind(nodeKey);
     auto InterfaceMatcher = interfaceDecl(isADefinition(),
@@ -114,6 +115,7 @@ namespace import_tidy {
                                  isNotInSystemHeader()).bind(nodeKey);
 
     Finder.addMatcher(CallMatcher, &CallCallback);
+    Finder.addMatcher(CastMatcher, &CastCallback);
     Finder.addMatcher(CategoryMatcher, &CategoryCallback);
     Finder.addMatcher(DeclRefMatcher, &DeclRefCallback);
     Finder.addMatcher(InterfaceMatcher, &InterfaceCallback);

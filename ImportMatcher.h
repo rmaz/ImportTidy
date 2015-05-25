@@ -15,8 +15,8 @@ namespace import_tidy {
   public:
     ImportMatcher(clang::tooling::Replacements &Replacements) :
       ImportRanges(), ImportMap(), LibraryCounts(),
-      CallCallback(*this), CategoryCallback(*this),
-      DeclRefCallback(*this),
+      CallCallback(*this), CastCallback(*this),
+      CategoryCallback(*this), DeclRefCallback(*this),
       FuncDeclCallback(*this), InterfaceCallback(*this),
       MsgCallback(*this), MtdCallback(*this), ProtoCallback(*this),
       StripCallback(*this), FileCallbacks(*this), Replacements(Replacements) {};
@@ -41,6 +41,7 @@ namespace import_tidy {
     std::set<clang::FileID> HeaderFiles;
     std::map<llvm::StringRef, unsigned> LibraryCounts;
     CallExprCallback CallCallback;
+    CastExprCallback CastCallback;
     CategoryCallback CategoryCallback;
     DeclRefCallback DeclRefCallback;
     FuncDeclCallback FuncDeclCallback;

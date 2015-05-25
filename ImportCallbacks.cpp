@@ -60,6 +60,13 @@ namespace import_tidy {
     }
   }
 
+  void CastExprCallback::run(const MatchFinder::MatchResult &Result) {
+    if (auto *CE = Result.Nodes.getNodeAs<CStyleCastExpr>(nodeKey)) {
+      auto &SM = *Result.SourceManager;
+      Matcher.addType(SM.getMainFileID(), CE->getType(), SM);
+    }
+  }
+
   void CategoryCallback::run(const MatchFinder::MatchResult &Result) {
     if (auto *CD = Result.Nodes.getNodeAs<ObjCCategoryDecl>(nodeKey)) {
       auto &SM = *Result.SourceManager;
@@ -150,13 +157,12 @@ namespace import_tidy {
     if (auto *E = Result.Nodes.getNodeAs<ObjCMessageExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
       Matcher.addImport(SM.getMainFileID(), E->getMethodDecl(), SM);
+      Matcher.addType(SM.getMainFileID(), E->getType(), SM);
 
       if (auto *ID = E->getReceiverInterface()) {
         Matcher.addImport(SM.getMainFileID(), ID, SM);
-      } else if (auto *Ptr = E->getReceiverType()->getAs<ObjCObjectPointerType>()) {
-        for (auto i = Ptr->qual_begin(); i != Ptr->qual_end(); i++) {
-          Matcher.addImport(SM.getMainFileID(), *i, SM);
-        }
+      } else {
+        Matcher.addType(SM.getMainFileID(), E->getReceiverType(), SM);
       }
     }
   }
