@@ -225,14 +225,15 @@ namespace import_tidy {
         continue;
 
       auto ReplacementRanges = collapsedRanges(ImportRanges[Fid]);
-      int InsertPos = 0;
-      for (auto I = ReplacementRanges.cbegin(); I != ReplacementRanges.cend(); I++) {
-        auto Start = StartLoc.getLocWithOffset(I->getOffset());
-        Replacements.insert(Replacement(SM, Start, I->getLength(), ""));
-        InsertPos = RangeEnd(*I);
+      if (ReplacementRanges.size() > 0) {
+        for (auto I = ReplacementRanges.cbegin(); I != ReplacementRanges.cend(); I++) {
+          auto Text = I == ReplacementRanges.cbegin() ? ImportStr.str() : "";
+          auto Start = StartLoc.getLocWithOffset(I->getOffset());
+          Replacements.insert(Replacement(SM, Start, I->getLength(), Text));
+        }
+      } else {
+        Replacements.insert(Replacement(SM, StartLoc, 0, ImportStr.str()));
       }
-      Replacements.insert(Replacement(SM, StartLoc.getLocWithOffset(InsertPos),
-                                      0, ImportStr.str()));
 
       out << "File: " << SM.getFilename(StartLoc) << "\n";
       out << ImportStr.str() << "\n";
