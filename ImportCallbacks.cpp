@@ -80,7 +80,11 @@ namespace import_tidy {
     if (auto *DRE = Result.Nodes.getNodeAs<DeclRefExpr>(nodeKey)) {
       auto &SM = *Result.SourceManager;
       auto InFile = SM.getFileID(DRE->getLocation());
+
+      // some Decls are located in the main file but have an external type (eg ParmVarDecl)
+      // some Decls are located externally but have an already imported type (eg Global constants)
       Matcher.addImport(InFile, DRE->getDecl(), SM);
+      Matcher.addType(InFile, DRE->getType(), SM);
     }
   }
 
