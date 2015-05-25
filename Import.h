@@ -5,6 +5,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/AST/Decl.h"
+#include <set>
 
 namespace import_tidy {
   enum class ImportType {
@@ -26,6 +27,10 @@ namespace import_tidy {
     clang::FileID getFile() const { return File; }
     llvm::StringRef getName() const { return Name; }
     ImportType getType() const { return Type; }
+    bool isForwardDeclare() const {
+      return Type == ImportType::ForwardDeclareClass ||
+             Type == ImportType::ForwardDeclareProtocol;
+    };
 
   private:
     clang::FileID File;
@@ -34,7 +39,9 @@ namespace import_tidy {
   };
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import&);
-  const std::vector<const Import*> sortedUniqueImports(const std::vector<Import>&);
+  const std::vector<const Import*>
+  sortedUniqueImports(const std::vector<Import>& Imports,
+                      const std::set<clang::FileID>& Excluding);
   clang::SourceLocation getDeclLoc(const clang::Decl*);
 }
 

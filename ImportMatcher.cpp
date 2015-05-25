@@ -89,6 +89,23 @@ namespace {
     return sorted;
   }
 
+  static std::set<FileID>
+  headerImportedFiles(const std::map<FileID, std::vector<Import>> &Imports,
+                      const FileID MainFileID) {
+    std::set<FileID> AllFiles;
+
+    for (auto &Pair : Imports) {
+      if (Pair.first == MainFileID)
+        continue;
+
+      for (auto &Import : Pair.second)
+        if (!Import.isForwardDeclare())
+          AllFiles.insert(Import.getFile());
+    }
+    return AllFiles;
+  }
+
+
 } // end anonymous namespace
 
 namespace import_tidy {
@@ -199,6 +216,8 @@ namespace import_tidy {
 
   void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
+    auto HeaderImports = headerImportedFiles(ImportMap, SM.getMainFileID());
+    std::set<FileID> EmptyImports;
     HeaderFiles.insert(SM.getMainFileID());
 
     for (auto &Pair : ImportMap) {
@@ -209,7 +228,8 @@ namespace import_tidy {
 
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
-      auto Imports = sortedUniqueImports(Pair.second);
+      auto &Excluded = SM.getMainFileID() == Pair.first ? HeaderImports : EmptyImports;
+      auto Imports = sortedUniqueImports(Pair.second, Excluded);
       for (auto *Import : Imports) {
         ImportStr << *Import << '\n';
         if (Import->getType() == ImportType::Library) {

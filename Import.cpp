@@ -1,6 +1,5 @@
 #include "Import.h"
 #include "clang/AST/DeclObjC.h"
-#include <set>
 #include <algorithm>
 
 using namespace llvm;
@@ -100,12 +99,6 @@ namespace import_tidy {
     }
   }
 
-  static bool isForwardDeclare(const Import &Import) {
-    auto Type = Import.getType();
-    return Type == ImportType::ForwardDeclareClass ||
-           Type == ImportType::ForwardDeclareProtocol;
-  }
-
 #pragma mark - Import
 
   Import::Import(const SourceManager &SM,
@@ -165,18 +158,26 @@ namespace import_tidy {
   }
 
   const std::vector<const Import*>
-  sortedUniqueImports(const std::vector<Import> &Imports) {
+  sortedUniqueImports(const std::vector<Import> &Imports,
+                      const std::set<FileID>& Excluding) {
     // get the set of imported files so we can remove unneeded forward declares
-    std::set<const FileID> ImportedFiles;
+    std::set<FileID> ImportedFiles;
     for (auto &I : Imports) {
-      if (!isForwardDeclare(I))
+      if (!I.isForwardDeclare())
         ImportedFiles.insert(I.getFile());
     }    
 
     std::vector<const Import*> SortedImports;
     for (auto &I : Imports) {
-      if (!(isForwardDeclare(I) && ImportedFiles.count(I.getFile()) > 0))
-        SortedImports.push_back(&I);
+      // don't import a file from the excluded list
+      if (Excluding.count(I.getFile()) > 0)
+        continue;
+
+      // don't forward declare a file already imported
+      if (I.isForwardDeclare() && ImportedFiles.count(I.getFile()) > 0)
+        continue;
+
+      SortedImports.push_back(&I);
     }
 
     std::sort(SortedImports.begin(), SortedImports.end(),
