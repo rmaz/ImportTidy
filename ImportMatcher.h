@@ -35,6 +35,7 @@ namespace import_tidy {
     void flush(const clang::SourceManager&);
     void printLibraryCounts(llvm::raw_ostream&);
   private:
+    std::set<clang::FileID> headerImportedFiles(const clang::SourceManager&);
     std::map<clang::FileID, std::vector<clang::tooling::Range>> ImportRanges;
     std::map<clang::FileID, std::vector<Import>> ImportMap;
     std::set<clang::FileID> HeaderFiles;

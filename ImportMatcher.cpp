@@ -89,23 +89,6 @@ namespace {
     return sorted;
   }
 
-  static std::set<FileID>
-  headerImportedFiles(const std::map<FileID, std::vector<Import>> &Imports,
-                      const FileID MainFileID) {
-    std::set<FileID> AllFiles;
-
-    for (auto &Pair : Imports) {
-      if (Pair.first == MainFileID)
-        continue;
-
-      for (auto &Import : Pair.second)
-        if (!Import.isForwardDeclare())
-          AllFiles.insert(Import.getFile());
-    }
-    return AllFiles;
-  }
-
-
 } // end anonymous namespace
 
 namespace import_tidy {
@@ -216,7 +199,7 @@ namespace import_tidy {
 
   void ImportMatcher::flush(const SourceManager &SM) {
     auto &out = llvm::outs();
-    auto HeaderImports = headerImportedFiles(ImportMap, SM.getMainFileID());
+    auto HeaderImports = headerImportedFiles(SM);
     std::set<FileID> EmptyImports;
     HeaderFiles.insert(SM.getMainFileID());
 
@@ -282,5 +265,21 @@ namespace import_tidy {
       OS << I->first << " : " << I->second << " times\n";
     }
   }
+
+  std::set<FileID> ImportMatcher::headerImportedFiles(const SourceManager &SM) {
+    std::set<FileID> AllFiles;
+
+    for (auto &Pair : ImportMap) {
+      if (Pair.first == SM.getMainFileID() ||
+          HeaderFiles.count(Pair.first) == 0)
+        continue;
+
+      for (auto &Import : Pair.second)
+        if (!Import.isForwardDeclare())
+          AllFiles.insert(Import.getFile());
+    }
+    return AllFiles;
+  }
+
 
 } // end namespace import_tidy
