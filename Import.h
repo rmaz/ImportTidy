@@ -24,6 +24,7 @@ namespace import_tidy {
 
     bool operator==(const Import &RHS) const;
     bool operator<(const Import &RHS) const;
+    const clang::Decl* getDecl() const { return ImportedDecl; }
     clang::FileID getFile() const { return File; }
     llvm::StringRef getName() const { return Name; }
     ImportType getType() const { return Type; }
@@ -33,6 +34,7 @@ namespace import_tidy {
     };
 
   private:
+    const clang::Decl *ImportedDecl;
     clang::FileID File;
     llvm::StringRef Name;
     ImportType Type;
@@ -40,8 +42,9 @@ namespace import_tidy {
 
   llvm::raw_ostream& operator<<(llvm::raw_ostream&, const Import&);
   const std::vector<const Import*>
-  sortedUniqueImports(const std::vector<Import>& Imports,
-                      const std::set<clang::FileID>& Excluding);
+  sortedUniqueImports(const clang::SourceManager&,
+                      const std::vector<Import> &Imports,
+                      const std::set<clang::FileID> &Excluding);
   clang::SourceLocation getDeclLoc(const clang::Decl*);
 }
 

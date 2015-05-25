@@ -103,7 +103,7 @@ namespace import_tidy {
 
   Import::Import(const SourceManager &SM,
                  const Decl *D,
-                 bool isForwardDeclare) {
+                 bool isForwardDeclare) : ImportedDecl(D) {
     File = topFileIncludingFile(SM.getFileID(getDeclLoc(D)), SM);
     Type = isForwardDeclare ? forwardType(D, SM) : calculateType(File, SM);
     Name = importName(Type, File, D, SM);
@@ -157,9 +157,32 @@ namespace import_tidy {
     return OS;
   }
 
+  const std::set<FileID>
+  getSuperclasses(const std::vector<Import> &Imports, const SourceManager &SM) {
+    std::set<FileID> Superclasses;
+
+    for (auto &I : Imports) {
+      if (I.getType() != ImportType::File)
+        continue;
+
+      if (auto *ID = dyn_cast<ObjCInterfaceDecl>(I.getDecl())) {
+        auto *Superclass = ID->getSuperClass();
+        while (Superclass && !SM.isInSystemHeader(Superclass->getLocation())) {
+          Superclasses.insert(SM.getFileID(Superclass->getLocation()));
+          Superclass = Superclass->getSuperClass();
+        }
+      }
+    }
+    return Superclasses;
+  }
+
   const std::vector<const Import*>
-  sortedUniqueImports(const std::vector<Import> &Imports,
-                      const std::set<FileID>& Excluding) {
+  sortedUniqueImports(const SourceManager &SM,
+                      const std::vector<Import> &Imports,
+                      const std::set<FileID> &Excluding) {
+    // get the set of superclass files to avoid unnecessary imports
+    auto Superclasses = getSuperclasses(Imports, SM);
+
     // get the set of imported files so we can remove unneeded forward declares
     std::set<FileID> ImportedFiles;
     for (auto &I : Imports) {
@@ -169,12 +192,14 @@ namespace import_tidy {
 
     std::vector<const Import*> SortedImports;
     for (auto &I : Imports) {
-      // don't import a file from the excluded list
-      if (Excluding.count(I.getFile()) > 0)
+      auto FID = I.getFile();
+
+      // don't import a file from the excluded list or a superclass of an imported file
+      if (Excluding.count(FID) > 0 || Superclasses.count(FID) > 0)
         continue;
 
       // don't forward declare a file already imported
-      if (I.isForwardDeclare() && ImportedFiles.count(I.getFile()) > 0)
+      if (I.isForwardDeclare() && ImportedFiles.count(FID) > 0)
         continue;
 
       SortedImports.push_back(&I);

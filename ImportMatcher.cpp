@@ -229,7 +229,7 @@ namespace import_tidy {
       std::string import;
       llvm::raw_string_ostream ImportStr(import);
       auto &Excluded = SM.getMainFileID() == Pair.first ? HeaderImports : EmptyImports;
-      auto Imports = sortedUniqueImports(Pair.second, Excluded);
+      auto Imports = sortedUniqueImports(SM, Pair.second, Excluded);
       for (auto *Import : Imports) {
         ImportStr << *Import << '\n';
         if (Import->getType() == ImportType::Library) {
