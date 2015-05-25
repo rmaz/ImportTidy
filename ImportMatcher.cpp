@@ -257,7 +257,8 @@ namespace import_tidy {
     OS << "--------------------------------" << "\n";
     OS << "Libraries sorted by import count" << "\n";
     OS << "--------------------------------" << "\n";
-    for (auto I = counts.rbegin(); I != counts.rend(); I++) {
+    const unsigned kThreshold = 5;
+    for (auto I = counts.rbegin(); I != counts.rend() && I->second >= kThreshold; I++) {
       OS << I->first << " : " << I->second << " times\n";
     }
   }
